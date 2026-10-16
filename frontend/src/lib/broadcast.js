@@ -40,7 +40,7 @@ export class OperatorBroadcaster {
       ws.onclose = ({ code }) => {
         clearTimeout(timer);
         this.stop();
-        this.onStatus({ live: false, error: ready ? 'Broadcast connection lost. Restart the broadcast.' : undefined });
+        this.onStatus({ live: false, error: code === 4402 ? 'No translation minutes left on this account.' : ready ? 'Broadcast connection lost. Restart the broadcast.' : undefined });
         if (!ready) reject(new Error(`Broadcast rejected (${code})`));
       };
     });

@@ -20,6 +20,7 @@ def reset(monkeypatch):
     server.ROOMS.clear()
     server._rate_buckets.clear()
     server.STORE.set('apikeys', [])
+    server.STORE.set('users', [])
 
 
 @pytest.fixture
@@ -498,7 +499,7 @@ def test_sso_flow_issues_operator_session_for_allowed_accounts(client, monkeypat
         done = client.get(f'/api/auth/sso/callback?code=c&state={state}', follow_redirects=False)
         location = done.headers['location']
         if allowed:
-            assert location.startswith('https://translate.example.org/#sso=')
+            assert location.startswith('https://translate.example.org/login#sso=')
             session = location.split('#sso=')[1]
             who = client.get('/api/operator', headers={'Authorization': 'Bearer ' + session}).json()
             assert who['email'] == 'team@stat4research.com'

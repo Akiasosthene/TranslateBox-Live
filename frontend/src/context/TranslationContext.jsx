@@ -5,6 +5,7 @@ import { getTarget } from "../lib/languages";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { useBroadcast } from "../hooks/useBroadcast";
 import { SegmentRecorder } from "../lib/transcript";
+import { StreamInput, setStreamInput, getStreamInput, fetchIngest } from "../lib/streamInput";
 import { CaptionRelay } from "../lib/captionRelay";
 import { dubSegments } from "../lib/dubbing";
 import { operatorFetch, responseError } from "../lib/api";
@@ -66,7 +67,10 @@ export function TranslationProvider({ children }) {
   const [outputDevices, setOutputDevices] = useState([]);
   const [selectedOutput, setSelectedOutput] = usePersistentState("tbl-output", "");
   const [ambientMode, setAmbientMode] = usePersistentState("tbl-ambient", false);
-  const captureSource = "mic";
+  // "mic" (local microphone) or "stream" (RTMP/SRT relayed by the server).
+  const [captureSource, setCaptureSourceState] = useState("mic");
+  const [streamState, setStreamState] = useState({ connected: false, live: false, error: "", level: 0 });
+  const [ingestInfo, setIngestInfo] = useState(null);
   const [sourceLang, setSourceLang] = usePersistentState("tbl-source", "auto");
   const [targetLang, setTargetLang] = usePersistentState("tbl-target", "en");
   const [modeKey, setModeKey] = usePersistentState("tbl-mode", "GENERAL");
@@ -358,9 +362,10 @@ export function TranslationProvider({ children }) {
 
   const channelStartArgs = useCallback((lang) => ({
     deviceId: selectedDevice,
+    source: captureSource,
     ambient: ambientMode,
     instructions: (compileInstructions({ modeKey, customText: customInstructions, targetName: getTarget(lang).name, profile }) + boostLine).slice(0, 6000),
-  }), [selectedDevice, ambientMode, modeKey, customInstructions, profile, boostLine]);
+  }), [selectedDevice, captureSource, ambientMode, modeKey, customInstructions, profile, boostLine]);
   const channelVoiceConfig = useMemo(() => ({
     voiceMode, voice: studioVoice, voiceLabel: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label, style: voiceStyle, glossary,
   }), [voiceMode, studioVoice, voiceStyle, glossary]);
@@ -429,6 +434,36 @@ export function TranslationProvider({ children }) {
     return out;
   }, [sourceLang, targetLang, broadcast.extrasRef, broadcast.archiveRef]);
 
+  // Stream input (RTMP / SRT): needs an event, connected from a click.
+  const eventIdForStream = broadcast.eventInfo?.id;
+  const connectStream = useCallback(async () => {
+    if (!eventIdForStream) throw new Error("Create or resume an event first: the stream key belongs to the event.");
+    const input = new StreamInput({
+      eventId: eventIdForStream,
+      onStatus: (st) => setStreamState((x) => ({ ...x, connected: st.connected, live: st.live, error: st.error || "" })),
+      onLevel: (lv) => setStreamState((x) => (Math.abs(x.level - lv) > 0.01 ? { ...x, level: lv } : x)),
+    });
+    setStreamInput(input);
+    await input.start();
+    setCaptureSourceState("stream");
+  }, [eventIdForStream]);
+  const setCaptureSource = useCallback(async (src) => {
+    if (src === "stream") return connectStream();
+    setStreamInput(null);
+    setStreamState({ connected: false, live: false, error: "", level: 0 });
+    setCaptureSourceState("mic");
+    return undefined;
+  }, [connectStream]);
+  useEffect(() => {
+    if (!eventIdForStream) { setIngestInfo(null); if (getStreamInput()) setCaptureSource("mic"); return; }
+    fetchIngest(eventIdForStream).then(setIngestInfo).catch(() => setIngestInfo(null));
+  }, [eventIdForStream]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => setStreamInput(null), []);
+  const rotateIngest = useCallback(async () => {
+    if (!eventIdForStream) return;
+    setIngestInfo(await fetchIngest(eventIdForStream, true));
+  }, [eventIdForStream]);
+
   // Server archive (opt-in per event): upload every minute and when stopping.
   const archiveNow = useCallback(async () => {
     const ev = broadcast.eventInfo;
@@ -487,6 +522,7 @@ export function TranslationProvider({ children }) {
     ...broadcast,
     toggleTranslationMute, toggleInputMute: () => setMicMuted(!inputMutedRef.current), testInput, stopTest,
     setMicMuted, pttEnabled, setPttEnabled, autoStopMinutes, setAutoStopMinutes,
+    setCaptureSource, streamState, ingestInfo, rotateIngest,
     idleStopMinutes, setIdleStopMinutes, pttKey, setPttKey, speaker, setSpeaker, archiveNow, archiveState,
     relayDestinations, addRelay, removeRelay, fetchUsage, loadLibrary, saveLibrary, dub, humanLangs, setHumanLangs,
     clearError: () => setError(null),

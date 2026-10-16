@@ -47,8 +47,8 @@ Legend: ✅ equal or better · 🟡 partial · ❌ missing · ➕ TranslateBox o
 | Translate a stored transcript | Translation keeping timing | ✅ |
 | Timestamp offset | Offset in seconds on exports | ✅ |
 | Usage / activity reports | Minutes per language and session, peak listeners, CSV | ✅ |
-| User accounts, roles, transferable minutes | Single operator code or SSO allowlist; monthly cap | ❌ (platform phase) |
-| 2FA | Delegated to the SSO provider | 🟡 |
+| User accounts, roles, transferable minutes | Owner / admin / presenter, minute balances and transfers, per-presenter sessions | ✅ |
+| 2FA | Authenticator-app codes (TOTP) or SSO | ✅ |
 | Developer API | HTTP API + API keys, [docs/API.md](API.md) | ✅ |
 
 ## Integrations
@@ -60,14 +60,13 @@ Legend: ✅ equal or better · 🟡 partial · ❌ missing · ➕ TranslateBox o
 | OBS / vMix / streaming overlays | Transparent overlay page | ✅ |
 | Event platforms (Cvent, Hopin…) via embed | Embeddable listener page, `EMBED_ORIGINS` | ✅ |
 | Generic webhook / API | Caption webhook (public HTTPS only) | ✅ |
-| Zoom / Teams / Meet **audio bot** (joins the meeting) | — | ❌ |
-| RTMP/RTMPS ingest (Webex, Vimeo, YouTube) | — | ❌ |
-| Native iOS / Android apps | Installable web app (PWA) | 🟡 |
+| Zoom / Teams / Meet **audio bot** (joins the meeting) | RTMP from Zoom, Teams, Webex instead (no bot); Meet not covered | 🟡 |
+| RTMP/RTMPS ingest | RTMP, SRT, RTMPS (with certificate) through MediaMTX | ✅ |
+| Native iOS / Android apps | Capacitor apps (Android APK from CI; iOS needs Mac + Apple account) + PWA | 🟡 |
 
 ## Remaining gaps and what they take
 
 1. **More output languages** — depends on OpenAI's realtime translation model. Option: a second pipeline (speech-to-text → text translation → TTS) for languages the realtime model lacks, with ~2–4 s more delay.
-2. **RTMP ingest** — an `nginx-rtmp`/`ffmpeg` container that turns the stream into the same 16 kHz PCM as the microphone.
-3. **Meeting bots** — Zoom Meeting SDK / Teams bot framework; needs app registration with each vendor.
-4. **Accounts, roles, minute pools, billing** — the multi-tenant "platform" phase.
-5. **Native apps** — wrap the PWA (Capacitor) if store presence is required.
+2. **Meeting bots** — Zoom Meeting SDK / Teams bot framework / Google Meet Media API; needs app registration with each vendor.
+3. **Multi-tenant organizations and billing** — several client organizations on one server, payments.
+4. **Store publication** — signed Android release and iOS build on a Mac with an Apple Developer account.

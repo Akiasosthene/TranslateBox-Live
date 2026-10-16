@@ -64,8 +64,11 @@ export default function Console() {
           </div>
         )}
 
-        <TransportControls />
-        <SpeakerBar />
+        {/* Live controls stay on screen while scrolling (start/stop, mute, speaker). */}
+        <div className="sticky top-[104px] lg:top-16 z-40 space-y-2 -mx-1 px-1 py-1 rounded-2xl bg-slate-50/80 dark:bg-[#0A0D14]/80 backdrop-blur-md" data-testid="live-bar">
+          <TransportControls />
+          <SpeakerBar />
+        </div>
 
         <section id="event" className="scroll-mt-24 space-y-4">
           <h2 className="font-bold text-lg">2 · {t("Create an event")}</h2>

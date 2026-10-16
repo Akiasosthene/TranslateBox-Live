@@ -104,3 +104,12 @@ Applied code-review fixes without changing behavior:
 - Webhook caption relay (public HTTPS only, DNS-checked), API keys (hashed, cannot manage keys), activity CSV, stop on silence, configurable PTT key.
 - Still out of scope: RTMP/RTMPS ingest (Webex, Vimeo), Zoom/Teams/Meet audio bots, user accounts with transferable minutes and roles, 2FA, native mobile apps, CEA-608 encoders.
 
+## V3 (2026-10) — Platform phase
+- Accounts (`backend/accounts.py`): owner/admin/presenter, scrypt passwords, persisted hashed sessions (`sess:`), TOTP 2FA (RFC 6238, replay-protected), admin user management, temporary passwords, last-owner protection; operator code = owner principal; API keys act as their creator (≤ admin) and cannot manage keys.
+- Event ownership: presenters only see/act on their events (path-param check in `require_operator`); admins see all with owner names.
+- Minutes: per-user balance (None = unlimited), transfers (admin any, users own balance), charged every 30 s during broadcast, 402 at session mint and close 4402 when empty.
+- Ingest (`backend/ingest.py`, MediaMTX service): RTMP/SRT publish authorised per event stream key via `/api/ingest/auth`; backend pulls with ffmpeg (16 kHz PCM, 40 ms) to the console over `role=ingest` WS; console `StreamInput` → MediaStream used by every engine, booth feed and meter.
+- Frontend: public Home with join box, `/login` (email + 2FA, operator code, SSO), `/present`, `/portal/:tab` (users, account with 2FA QR, minutes transfer, keys), app navigation, sticky live bar.
+- Mobile: Capacitor 8 project (`mobile/`), Android debug APK and iOS simulator build in GitHub Actions.
+- Out of scope: meeting bots (vendor app registration), multi-tenant organizations, billing.
+

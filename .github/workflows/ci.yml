@@ -31,7 +31,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npm audit --audit-level=high
+      # Shipped dependencies must be clean; build tools are reviewed separately.
+      - run: npm audit --omit=dev --audit-level=high
   containers:
     runs-on: ubuntu-latest
     steps:

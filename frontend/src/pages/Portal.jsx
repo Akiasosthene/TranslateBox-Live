@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, CalendarClock, Copy, Download, FileText, KeyRound, Languages, Pin, PinOff, Play, Plus, RefreshCw, Trash2, Upload, BarChart3, Pencil, X } from "lucide-react";
 import { useLocale } from "../context/LocaleContext";
 import { useTranslationSession } from "../context/TranslationContext";
@@ -7,12 +7,15 @@ import { Header } from "../components/Header";
 import { API, operatorFetch, responseError } from "../lib/api";
 import { TARGET_LANGUAGES, getTarget } from "../lib/languages";
 import { csvObjects, toCSV } from "../lib/csv";
+import { UsersAdmin, AccountPage } from "./portal/Accounts";
+import { useAuth } from "../context/AuthContext";
+import { isAdmin } from "../lib/auth";
 import { toSRT, toVTT, toTimedText, withSpeakers, downloadText } from "../lib/transcript";
 
 const card = "rounded-2xl bg-white/80 dark:bg-[#121824]/70 border border-slate-200/70 dark:border-white/10 p-4 md:p-5";
 const btn = "h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1.5 disabled:opacity-40";
 const input = "h-10 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm";
-const TABS = [["sessions", "Sessions", CalendarClock], ["transcripts", "Transcripts", FileText], ["activity", "Activity", BarChart3], ["keys", "API keys", KeyRound]];
+const TITLES = { sessions: "Sessions", transcripts: "Transcripts", activity: "Activity", users: "Users", account: "Account" };
 
 async function call(path, options, fallback) {
   const res = await operatorFetch(`${API}${path}`, options);
@@ -34,7 +37,9 @@ const langList = (text) => String(text || "").toLowerCase().split(/[\s|/+,;]+/).
 // manage sessions, retrieve archived transcripts, activity and API keys.
 export default function Portal() {
   const { t } = useLocale();
-  const [tab, setTab] = useState("sessions");
+  const { tab: tabParam } = useParams();
+  const { me } = useAuth();
+  const tab = TITLES[tabParam] && (tabParam !== "users" || isAdmin(me)) ? tabParam : "sessions";
   const [events, setEvents] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -52,24 +57,17 @@ export default function Portal() {
       <main className="max-w-5xl mx-auto px-4 md:px-6 py-6 space-y-5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
-            <Link to="/" className="h-10 w-10 rounded-lg border border-slate-300 dark:border-slate-700 grid place-items-center" aria-label={t("Back to the console")}><ArrowLeft className="h-5 w-5" /></Link>
-            <h1 className="text-2xl font-extrabold">{t("Portal")}</h1>
+            <Link to="/present" className="h-10 w-10 rounded-lg border border-slate-300 dark:border-slate-700 grid place-items-center" aria-label={t("Back to the console")}><ArrowLeft className="h-5 w-5" /></Link>
+            <h1 className="text-2xl font-extrabold">{t(TITLES[tab])}</h1>
           </div>
-          <button onClick={refresh} className={btn} disabled={loading}><RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />{t("Refresh")}</button>
+          {["sessions", "transcripts", "activity"].includes(tab) && <button onClick={refresh} className={btn} disabled={loading}><RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />{t("Refresh")}</button>}
         </div>
-        <nav role="tablist" className="flex flex-wrap gap-2">
-          {TABS.map(([id, label, Icon]) => (
-            <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} data-testid={`portal-tab-${id}`}
-              className={`h-10 px-4 rounded-full border text-sm font-semibold inline-flex items-center gap-2 ${tab === id ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-slate-300 dark:border-slate-700"}`}>
-              <Icon className="h-4 w-4" />{t(label)}
-            </button>
-          ))}
-        </nav>
         {error && <p role="alert" className="text-sm text-rose-500">{t(error)}</p>}
         {tab === "sessions" && <Sessions events={events} refresh={refresh} setError={setError} />}
         {tab === "transcripts" && <Transcripts events={events} refresh={refresh} setError={setError} />}
         {tab === "activity" && <Activity events={events} setError={setError} />}
-        {tab === "keys" && <ApiKeys setError={setError} />}
+        {tab === "users" && <UsersAdmin setError={setError} />}
+        {tab === "account" && <AccountPage setError={setError} keys={<ApiKeys setError={setError} />} />}
       </main>
     </div>
   );
@@ -162,7 +160,7 @@ function Sessions({ events, refresh, setError }) {
     setImportMsg(`${ok} ${t("sessions imported")}${failed.length ? ` · ${failed.length} ${t("errors")} (${t("line")} ${failed.slice(0, 3).join("; ")})` : ""}`);
   });
 
-  const open = (ev) => run(async () => { await resumeEvent(ev.id); navigate("/"); });
+  const open = (ev) => run(async () => { await resumeEvent(ev.id); navigate("/present"); });
 
   return (
     <div className="space-y-4">
@@ -200,6 +198,7 @@ function Sessions({ events, refresh, setError }) {
                     {ev.duration_minutes ? <> · {ev.duration_minutes} min</> : null}
                     {" · "}{minutes(ev.usage)} {t("AI min")} · {t("peak")} {ev.peak_listeners || 0} {t("listeners")}
                     {ev.archive && <> · {t("transcripts archived")}</>}
+                    {ev.owner_name && <> · {ev.owner_name}</>}
                   </p>
                   {ev.labels?.length > 0 && <p className="flex flex-wrap gap-1">{ev.labels.map((l) => <span key={l} className="text-[11px] rounded-full border border-slate-300 dark:border-slate-700 px-2">{l}</span>)}</p>}
                 </div>
@@ -289,9 +288,9 @@ function Activity({ events, setError }) {
   const [usage, setUsage] = useState(null);
   useEffect(() => { call("/usage", {}, "Usage unavailable.").then(setUsage).catch((e) => setError(e.message)); }, [setError]);
   const exportCsv = () => {
-    const rows = [["session", "code", "created", "start", "languages", "ai_minutes", ...TARGET_LANGUAGES.map((l) => `min_${l.code}`), "peak_listeners", "labels"]];
+    const rows = [["session", "code", "owner", "created", "start", "languages", "ai_minutes", ...TARGET_LANGUAGES.map((l) => `min_${l.code}`), "peak_listeners", "labels"]];
     for (const ev of events) {
-      rows.push([ev.name, ev.code, new Date(ev.created * 1000).toISOString(), ev.start_at || "", (ev.targets || []).join(" "), minutes(ev.usage),
+      rows.push([ev.name, ev.code, ev.owner_name || "", new Date(ev.created * 1000).toISOString(), ev.start_at || "", (ev.targets || []).join(" "), minutes(ev.usage),
         ...TARGET_LANGUAGES.map((l) => Math.round((ev.usage?.[l.code] || 0) / 6) / 10), ev.peak_listeners || 0, (ev.labels || []).join("|")]);
     }
     downloadText(`translatebox-activity-${new Date().toISOString().slice(0, 10)}.csv`, "﻿" + toCSV(rows), "text/csv");

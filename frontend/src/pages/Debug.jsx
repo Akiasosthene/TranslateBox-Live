@@ -61,7 +61,7 @@ export default function Debug() {
           <HomeLink />
           <InterfaceLanguage />
           <Link
-            to="/"
+            to="/present"
             data-testid="debug-back-link"
             className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800 transition-colors"
           >

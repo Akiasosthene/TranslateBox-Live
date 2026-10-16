@@ -1,0 +1,9 @@
+{
+  "appId": "org.translatebox.live",
+  "appName": "TranslateBox",
+  "webDir": "../frontend/dist",
+  "backgroundColor": "#0A0D14",
+  "android": { "allowMixedContent": false },
+  "ios": { "contentInset": "always", "limitsNavigationsToAppBoundDomains": false },
+  "server": { "androidScheme": "https" }
+}

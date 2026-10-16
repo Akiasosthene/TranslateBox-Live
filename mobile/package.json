@@ -1,0 +1,20 @@
+{
+  "name": "translatebox-mobile",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Native Android and iOS shells for the TranslateBox listener and console (Capacitor).",
+  "scripts": {
+    "web": "cd ../frontend && VITE_BACKEND_URL=${TB_SERVER_URL:?Set TB_SERVER_URL, e.g. https://translatebox.duckdns.org} npm run build",
+    "sync": "npm run web && cap sync",
+    "android": "npm run sync && cap open android",
+    "ios": "npm run sync && cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3"
+  }
+}

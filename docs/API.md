@@ -8,9 +8,10 @@ Operator endpoints need `Authorization: Bearer <token>` where the token is one o
 
 - the operator code (`OPERATOR_TOKEN`, 32+ characters),
 - an SSO session token (after "Sign in with …"),
-- an **API key** `tbk_…` created in **Portal → API keys** (or `POST /api/keys`).
+- a **sign-in session** `tbs_…` from `POST /api/auth/login` (email, password, optional 6-digit `code`) or single sign-on,
+- an **API key** `tbk_…` created in **Portal → Account** (or `POST /api/keys`).
 
-API keys can do everything an operator can, **except** list, create or revoke API keys. Keys are stored hashed; the secret is shown once. Revoke a key to cut access immediately.
+Roles: `owner`, `admin`, `presenter`. Presenters only see and act on their own sessions (other ids answer 404). The operator code acts as the owner. An API key acts as the person who created it (never above admin) and cannot list, create or revoke keys. Keys are stored hashed; the secret is shown once.
 
 Public endpoints (no token): `GET /api/health`, `GET /api/events/{id}`, `GET /api/join/{code}`, the listener WebSocket.
 
@@ -62,6 +63,31 @@ Only for sessions with `archive_transcripts: true`. The operator console uploads
 | `PUT` | `/events/{id}/transcripts/{lang}` | Replace (`{segments}`; ≤ 8000 segments) |
 | `DELETE` | `/events/{id}/transcripts/{lang}` | Delete one language |
 | `POST` | `/events/{id}/transcripts/{lang}/translate` | `{to: "de"}` → translated copy with the same timing |
+
+## Accounts
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/auth/login` | `{email, password, code?}` → `{token, user}`; 401 with `totp_required: true` when the 2FA code is needed |
+| `POST` | `/auth/logout` | End the session |
+| `GET` / `PATCH` | `/me` | Current principal and profile (`{name}`) |
+| `POST` | `/me/password` | `{current, new}` (10+ chars, upper, lower, digit) |
+| `POST` | `/me/2fa/setup` · `/me/2fa/enable` · `/me/2fa/disable` | Authenticator app (`otpauth://` URI), `{code}` |
+| `GET` / `POST` | `/users` | Admin: list, create `{email, name, role, minutes}` → temporary password |
+| `PATCH` / `DELETE` | `/users/{uid}` | Admin: `{name, role, disabled, minutes_balance, unlimited}` |
+| `POST` | `/users/{uid}/reset` | Admin: new temporary password, 2FA off |
+| `POST` | `/minutes/transfer` | `{to, minutes, from_user?}` |
+| `GET` | `/directory` | Colleagues with a minute balance (transfer targets) |
+
+## Stream ingest
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/events/{id}/ingest` | RTMP URL, stream key, SRT address |
+| `POST` | `/events/{id}/ingest/rotate` | New stream key |
+| `POST` | `/ingest/auth` | Called by MediaMTX before each publish/read |
+
+The console reads the stream on `wss://<domain>/api/ws/{id}?role=ingest` (first message `{"type":"auth","bearer":"<token>"}`): JSON `{type:"ingest", live}` and binary PCM16 16 kHz frames.
 
 ## Activity and settings
 

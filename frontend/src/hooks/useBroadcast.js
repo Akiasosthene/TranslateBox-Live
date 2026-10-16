@@ -77,7 +77,7 @@ export function useBroadcast({
       const src = new SourceChannel({ onError: setError });
       sourceRef.current = src;
       const args = startArgsRef.current(event.target);
-      src.start({ event, deviceId: args.deviceId, ambient: args.ambient })
+      src.start({ event, deviceId: args.deviceId, ambient: args.ambient, source: args.source })
         .then(() => src.setMuted(micMutedRef.current))
         .catch((e) => setError("Interpreter booth feed could not start: " + e.message));
     }

@@ -86,3 +86,7 @@
 .tb-login .tb-sso { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:10px; padding:13px 18px; border-radius:12px; border:1.5px solid #c7d2e2; color:#092455; font-weight:700; font-size:13px; background:#fff; transition:border-color .2s, background .2s; }
 .tb-login .tb-sso:hover { border-color:#2bb4f4; background:#f2faff; }
 .tb-login .tb-sso:focus-visible { outline:2px solid #2bb4f4; outline-offset:2px; }
+#features.tb-how { background:#fff; }
+.tb-feature-grid article > div { align-items:center; }
+.tb-feature-grid article > div svg:last-child { color:#c4d3f1; }
+.tb-footer a { color:#c5d3ec; }

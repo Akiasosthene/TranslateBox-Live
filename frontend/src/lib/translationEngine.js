@@ -1,3 +1,4 @@
+import { getStreamInput } from "./streamInput";
 import { operatorHeaders } from "./api";
 import { ProgramBus } from "./programBus";
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/translations/calls";
@@ -93,6 +94,11 @@ export class TranslationEngine {
 
   // ---- audio capture ----
   async _capture(deviceId, source, ambient) {
+    if (source === "stream") {
+      const input = getStreamInput();
+      if (!input) throw new Error("NO_AUDIO_INPUT::Connect the stream input first (Audio input → Stream).");
+      return input.stream();
+    }
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone access requires HTTPS or localhost and a supported browser.");
     let stream;
     try {
@@ -220,7 +226,7 @@ export class TranslationEngine {
     const generation = ++this._generation;
     this.active = true;
     this.deviceId = deviceId;
-    this.captureSource = "mic";
+    this.captureSource = source === "stream" ? "stream" : "mic";
     this.ambient = ambient;
     this.targetLanguage = targetLanguage;
     this.instructions = instructions;

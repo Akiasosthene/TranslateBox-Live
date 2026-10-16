@@ -1,7 +1,7 @@
 {
   "short_name": "TranslateBox",
   "name": "TranslateBox Live",
-  "description": "Real-time French to English speech interpretation console.",
+  "description": "Live AI interpretation: translated audio and captions on every phone.",
   "icons": [
     {
       "src": "icons/icon-192.png",
@@ -22,9 +22,21 @@
       "purpose": "maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
   "orientation": "any",
   "theme_color": "#0A0D14",
-  "background_color": "#0A0D14"
+  "background_color": "#0A0D14",
+  "shortcuts": [
+    {
+      "name": "Join a session",
+      "short_name": "Join",
+      "url": "/join"
+    },
+    {
+      "name": "Present",
+      "short_name": "Present",
+      "url": "/present"
+    }
+  ]
 }

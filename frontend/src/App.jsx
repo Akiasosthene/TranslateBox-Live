@@ -1,7 +1,7 @@
 import { LocaleProvider } from '@/context/LocaleContext';
 import "@/App.css";
 import React, { Suspense, lazy } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import { ThemeProvider } from "@/context/ThemeContext";
 import Listener from "@/pages/Listener";
 
@@ -15,6 +15,8 @@ const Screen = lazy(() => import("@/pages/Screen"));
 const Booth = lazy(() => import("@/pages/Booth"));
 const Join = lazy(() => import("@/pages/Join"));
 const Portal = lazy(() => import("@/pages/Portal"));
+const Home = lazy(() => import("@/pages/Home"));
+const Login = lazy(() => import("@/pages/Login"));
 const Loading = () => <div className="min-h-screen bg-[#0A0D14]" aria-busy="true" />;
 
 function App() {
@@ -28,13 +30,16 @@ function App() {
             <Route path="/e/:id/booth" element={<Booth />} />
             <Route path="/join" element={<Join />} />
             <Route path="/join/:code" element={<Join />} />
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
             <Route element={<OperatorShell />}>
-              <Route path="/" element={<Console />} />
+              <Route path="/present" element={<Console />} />
               <Route path="/portal" element={<Portal />} />
+              <Route path="/portal/:tab" element={<Portal />} />
               <Route path="/debug" element={<Debug />} />
               <Route path="/loadtest" element={<LoadTest />} />
             </Route>
-            <Route path="*" element={<p className="p-8">Page not found. <a href="/">Open TranslateBox</a></p>} />
+            <Route path="*" element={<p className="p-8">Page not found. <Link to="/">Open TranslateBox</Link></p>} />
           </Routes>
           </Suspense>
       </BrowserRouter>

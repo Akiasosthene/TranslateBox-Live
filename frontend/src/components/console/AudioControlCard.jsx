@@ -5,6 +5,7 @@ import { useTranslationSession } from "../../context/TranslationContext";
 import { LanguageCombobox } from "../LanguageCombobox";
 import { LevelMeter } from "../LevelMeter";
 import { SOURCE_LANGUAGES, TARGET_LANGUAGES } from "../../lib/languages";
+import { StreamSourcePanel } from "./StreamSourcePanel";
 
 // Language selection + audio input/output routing card (operator setup).
 export const AudioControlCard = () => {
@@ -13,8 +14,10 @@ export const AudioControlCard = () => {
     active, sourceLang, setSourceLang, targetLang, setTargetLang,
     devices, selectedDevice, setSelectedDevice, captureSource,
     outputDevices, selectedOutput, setOutputDevice, outputSupported,
-    ambientMode, setAmbientMode, level, testing, testInput, stopTest,
+    ambientMode, setAmbientMode, level, testing, testInput, stopTest, setCaptureSource,
   } = useTranslationSession();
+  const [srcErr, setSrcErr] = React.useState("");
+  const pick = (src) => { setSrcErr(""); Promise.resolve(setCaptureSource(src)).catch((e) => setSrcErr(e.message)); };
 
   return (
     <section className="rounded-2xl bg-white/80 dark:bg-[#121824]/70 backdrop-blur-xl border border-slate-200/70 dark:border-white/10 shadow-lg shadow-black/5 dark:shadow-black/20 p-4 md:p-5 space-y-4">
@@ -31,12 +34,23 @@ export const AudioControlCard = () => {
         </div>
       </div>
 
-      <p className="rounded-lg bg-sky-500/10 p-3 text-sm">{t("Microphone only. For a video on your Mac, play it through the speakers and enable Ambient / TV mode below. Listen to the translation on your phone with headphones.")}</p>
+      <div className="space-y-2">
+        <div role="radiogroup" aria-label={t("Audio source")} className="inline-flex rounded-xl border border-slate-300 dark:border-slate-700 p-1 gap-1" data-testid="capture-source">
+          {[["mic", "Microphone"], ["stream", "Meeting or stream (RTMP / SRT)"]].map(([key, label]) => (
+            <button key={key} type="button" role="radio" aria-checked={captureSource === key} disabled={active || testing} onClick={() => pick(key)} data-testid={`source-${key}`}
+              className={`h-9 px-3 rounded-lg text-sm font-semibold disabled:opacity-50 ${captureSource === key ? "bg-emerald-600 text-white" : "text-slate-600 dark:text-slate-300"}`}>{t(label)}</button>
+          ))}
+        </div>
+        {srcErr && <p className="text-sm text-rose-500" role="alert">{t(srcErr)}</p>}
+        {captureSource === "stream" ? <StreamSourcePanel /> : (
+          <p className="rounded-lg bg-sky-500/10 p-3 text-sm">{t("Microphone only. For a video on your Mac, play it through the speakers and enable Ambient / TV mode below. Listen to the translation on your phone with headphones.")}</p>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_auto] gap-3 md:gap-4 items-end pt-1 border-t border-slate-100 dark:border-slate-800/60">
         <div className="pt-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">{t("Audio input")}</p>
-          <select data-testid="audio-device-select" value={selectedDevice} disabled={active || captureSource === "display"} onChange={(e) => setSelectedDevice(e.target.value)}
+          <select data-testid="audio-device-select" value={selectedDevice} disabled={active || captureSource !== "mic"} onChange={(e) => setSelectedDevice(e.target.value)}
             className="mt-1.5 w-full h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60">
             {devices.length === 0 && <option value="">{t("Default microphone")}</option>}
             {devices.map((d, i) => (<option key={d.deviceId || i} value={d.deviceId}>{d.label || `Microphone ${i + 1}`}</option>))}

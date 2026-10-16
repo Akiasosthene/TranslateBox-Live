@@ -25,6 +25,8 @@ from pydantic import BaseModel, Field
 import httpx
 import anyio
 from event_store import EventStore, KVStore
+import accounts
+import ingest
 
 
 ROOT_DIR = Path(__file__).parent
@@ -110,41 +112,125 @@ async def lifespan(_app):
 app = FastAPI(title="TranslateBox Live API", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
-# Operator sessions created by single sign-on (OIDC). Kept in memory only:
-# a backend restart signs SSO operators out.
-SSO_SESSIONS = {}  # token -> {"email": str, "exp": float}
-SSO_SESSION_TTL = int(os.environ.get("SSO_SESSION_HOURS", "12")) * 3600
+# Signed-in sessions (password or single sign-on), persisted in the KV store
+# as sha256(token) so a backend restart keeps people signed in.
+SESSION_TTL = int(os.environ.get("SSO_SESSION_HOURS", "12")) * 3600
+OWNER_PRINCIPAL = {"id": "owner", "role": "owner", "email": None, "name": "Operator code", "via": "code"}
 
 
 def _sso_enabled() -> bool:
     return all(os.environ.get(k) for k in ("OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"))
 
 
-def _sso_session(supplied: str):
+def _users() -> list:
+    return list(STORE.get("users", []) or [])
+
+
+def _save_users(users):
+    STORE.set("users", users)
+
+
+def _find_user(uid=None, email=None):
+    for user in _users():
+        if (uid and user["id"] == uid) or (email and user["email"] == email.lower()):
+            return user
+    return None
+
+
+def _update_user(uid, **fields):
+    users = _users()
+    for i, user in enumerate(users):
+        if user["id"] == uid:
+            users[i] = {**user, **fields}
+            _save_users(users)
+            return users[i]
+    return None
+
+
+def _session_key(token: str) -> str:
+    return "sess:" + hashlib.sha256(token.encode()).hexdigest()
+
+
+def _new_session(uid: str, via: str) -> str:
+    token = "tbs_" + secrets.token_urlsafe(32)
+    STORE.set(_session_key(token), {"uid": uid, "via": via, "exp": time.time() + SESSION_TTL})
+    return token
+
+
+def _session_user(token: str):
+    record = STORE.get(_session_key(token))
+    if not record:
+        return None
+    if record["exp"] < time.time():
+        STORE.delete_prefix(_session_key(token))
+        return None
+    user = _find_user(uid=record["uid"])
+    if not user or user.get("disabled"):
+        return None
+    return {**user, "via": record.get("via", "password")}
+
+
+def _principal(request: Request):
+    supplied = request.headers.get("authorization", "")
     if not supplied.startswith("Bearer "):
         return None
-    now = time.time()
-    for token in [t for t, v in SSO_SESSIONS.items() if v["exp"] < now]:
-        SSO_SESSIONS.pop(token, None)
-    return SSO_SESSIONS.get(supplied[7:])
+    return _principal_from_token(supplied[7:])
+
+
+def _principal_from_token(token: str):
+    if not isinstance(token, str) or not token:
+        return None
+    expected = os.environ.get("OPERATOR_TOKEN", "")
+    if len(expected) >= 32 and secrets.compare_digest(token.encode(), expected.encode()):
+        return OWNER_PRINCIPAL
+    if token.startswith("tbk_"):
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        for key in STORE.get("apikeys", []) or []:
+            if secrets.compare_digest(digest, key["hash"]):
+                uid = key.get("user_id") or "owner"
+                if uid != "owner":
+                    user = _find_user(uid=uid)
+                    if not user or user.get("disabled"):
+                        return None
+                role = key.get("role") or "admin"
+                return {"id": uid, "role": role, "email": None, "name": key.get("name"), "via": "key"}
+        return None
+    if token.startswith("tbs_"):
+        user = _session_user(token)
+        if user:
+            return {"id": user["id"], "role": user["role"], "email": user["email"], "name": user.get("name", ""), "via": user["via"]}
+    return None
+
+
+def _rank(principal) -> int:
+    return accounts.ROLE_RANK.get((principal or {}).get("role"), 0)
 
 
 def require_operator(request: Request):
     if _rate_limited("auth:" + _client_ip(request), 120):
         raise HTTPException(429, "Too many requests. Try again shortly.")
     expected = os.environ.get("OPERATOR_TOKEN", "")
-    if len(expected) < 32 and not _sso_enabled():
+    if len(expected) < 32 and not _sso_enabled() and not STORE.get("users"):
         raise HTTPException(503, "Operator access is not configured on the server.")
-    supplied = request.headers.get("authorization", "")
-    if len(expected) >= 32 and secrets.compare_digest(supplied.encode(), ("Bearer " + expected).encode()):
-        return
-    if _sso_session(supplied):
-        return
-    if supplied.startswith("Bearer tbk_"):
-        digest = hashlib.sha256(supplied[7:].encode()).hexdigest()
-        if any(secrets.compare_digest(digest, key["hash"]) for key in STORE.get("apikeys", []) or []):
-            return
-    raise HTTPException(401, "Operator access required.")
+    principal = _principal(request)
+    if not principal:
+        raise HTTPException(401, "Operator access required.")
+    request.state.principal = principal
+    # Presenters only reach their own sessions.
+    eid = request.path_params.get("eid")
+    if eid and _rank(principal) < accounts.ROLE_RANK["admin"]:
+        ev = EVENTS.get(eid)
+        if ev and ev.get("owner") != principal["id"]:
+            raise HTTPException(404, "Event expired or not found. Create a new event.")
+    return principal
+
+
+def require_admin(request: Request):
+    principal = require_operator(request)
+    if _rank(principal) < accounts.ROLE_RANK["admin"]:
+        raise HTTPException(403, "Administrator access required.")
+    return principal
+
 
 api_router = APIRouter(prefix="/api")
 
@@ -214,17 +300,16 @@ async def root():
     return {"message": "TranslateBox Live API", "status": "ok"}
 
 
-@api_router.get("/operator", dependencies=[Depends(require_operator)])
-async def operator_access(request: Request):
-    session = _sso_session(request.headers.get("authorization", ""))
-    return {"status": "ok", "email": session["email"] if session else None}
+@api_router.get("/operator")
+async def operator_access(principal: dict = Depends(require_operator)):
+    return {"status": "ok", "email": principal.get("email"), "role": principal["role"], "id": principal["id"], "name": principal.get("name")}
 
 
 @api_router.post("/auth/logout")
 async def logout(request: Request):
     supplied = request.headers.get("authorization", "")
-    if supplied.startswith("Bearer "):
-        SSO_SESSIONS.pop(supplied[7:], None)
+    if supplied.startswith("Bearer tbs_"):
+        STORE.delete_prefix(_session_key(supplied[7:]))
     return {"status": "ok"}
 
 
@@ -258,7 +343,7 @@ async def _oidc_config() -> dict:
 
 
 def _sso_fail(message: str):
-    return RedirectResponse(_public_origin() + "/#sso_error=" + urlencode({"m": message})[2:], status_code=302)
+    return RedirectResponse(_public_origin() + "/login#sso_error=" + urlencode({"m": message})[2:], status_code=302)
 
 
 @api_router.get("/auth/sso")
@@ -314,13 +399,19 @@ async def sso_callback(code: str = "", state: str = "", error: str = ""):
     except (httpx.HTTPError, ValueError, KeyError):
         return _sso_fail("Sign-in provider unreachable.")
     email = info.get("email") or info.get("preferred_username") or ""
-    if info.get("email_verified") is False or not _sso_allowed(email):
+    if info.get("email_verified") is False or not (_sso_allowed(email) or _find_user(email=email or "-")):
         logger.info("SSO refused for an account outside OIDC_ALLOWED")
         return _sso_fail("This account is not allowed to operate TranslateBox.")
-    session = secrets.token_urlsafe(32)
-    SSO_SESSIONS[session] = {"email": email.lower(), "exp": time.time() + SSO_SESSION_TTL}
+    email = email.lower()
+    user = _find_user(email=email)
+    if user is None:
+        role = os.environ.get("OIDC_DEFAULT_ROLE", "presenter")
+        user = _create_user(email, info.get("name") or email.split("@")[0], role if role in accounts.ROLES else "presenter", None)
+    if user.get("disabled"):
+        return _sso_fail("This account is not allowed to operate TranslateBox.")
+    session = _new_session(user["id"], "sso")
     logger.info("SSO operator signed in")
-    return RedirectResponse(_public_origin() + "/#sso=" + session, status_code=302)
+    return RedirectResponse(_public_origin() + "/login#sso=" + session, status_code=302)
 
 
 @api_router.get("/health")
@@ -425,8 +516,8 @@ async def _mint_session(base_config: dict, instructions: str, headers: dict):
     return await _post(base_config), False
 
 
-@api_router.post("/realtime-session", dependencies=[Depends(require_operator)])
-async def create_realtime_session(req: SessionRequest, request: Request):
+@api_router.post("/realtime-session")
+async def create_realtime_session(req: SessionRequest, request: Request, principal: dict = Depends(require_operator)):
     """Mint a short-lived OpenAI Realtime Translation client secret.
 
     The permanent OPENAI_API_KEY never leaves the server. The browser only
@@ -441,6 +532,7 @@ async def create_realtime_session(req: SessionRequest, request: Request):
             detail="The translation service is not configured on the server.",
         )
 
+    _check_balance(principal)
     if USAGE_CAP_MINUTES and _month_minutes() >= USAGE_CAP_MINUTES:
         raise HTTPException(402, "The monthly translation limit set by the administrator is reached. Raise USAGE_CAP_MINUTES to continue.")
     target_language = _resolve_target_language(req.target_language)
@@ -625,6 +717,7 @@ def _record_usage(eid: str, lang: str, seconds: float):
         usage = dict(EVENTS[eid].get("usage") or {})
         usage[lang] = round(usage.get(lang, 0) + seconds, 1)
         EVENTS[eid] = {**EVENTS[eid], "usage": usage}
+        _charge_minutes(EVENTS[eid].get("owner"), seconds)
 
 
 def _targets(eid) -> list:
@@ -744,8 +837,8 @@ def _drop_event(eid):
     STORE.delete_prefix(f"txindex:{eid}")
 
 
-@api_router.post("/events", dependencies=[Depends(require_operator)])
-async def create_event(body: EventCreate):
+@api_router.post("/events")
+async def create_event(body: EventCreate, principal: dict = Depends(require_operator)):
     _prune_events()
     if len(EVENTS) >= MAX_EVENTS:
         raise HTTPException(429, "Event capacity reached. Try again later.")
@@ -778,6 +871,7 @@ async def create_event(body: EventCreate):
         "pin_hash": hashlib.sha256(body.pin.encode()).hexdigest() if body.pin else None,
         "captions": bool(body.captions),
         "created": time.time(),
+        "owner": principal["id"],
     }
     _room(eid)
     logger.info("Event created %s", eid)
@@ -809,13 +903,17 @@ def _public_event(eid):
     }
 
 
-@api_router.get("/events", dependencies=[Depends(require_operator)])
-async def list_events():
+@api_router.get("/events")
+async def list_events(principal: dict = Depends(require_operator)):
     _prune_events()
+    admin = _rank(principal) >= accounts.ROLE_RANK["admin"]
+    owners = {u["id"]: u.get("name") or u["email"] for u in _users()} if admin else {}
     return {"events": [{"id": eid, **_public_event(eid), "usage": EVENTS[eid].get("usage") or {},
                         "archive": bool(EVENTS[eid].get("archive")), "peak_listeners": EVENTS[eid].get("peak_listeners", 0),
-                        "transcripts": _transcript_index(eid)}
-                       for eid in sorted(EVENTS, key=lambda eid: EVENTS[eid]["created"], reverse=True)]}
+                        "transcripts": _transcript_index(eid), "owner": EVENTS[eid].get("owner"),
+                        "owner_name": owners.get(EVENTS[eid].get("owner")) or ("Operator code" if EVENTS[eid].get("owner") in (None, "owner") else None)}
+                       for eid in sorted(EVENTS, key=lambda eid: EVENTS[eid]["created"], reverse=True)
+                       if admin or EVENTS[eid].get("owner") == principal["id"]]}
 
 
 @api_router.get("/join/{code}")
@@ -862,8 +960,8 @@ async def update_event(eid: str, body: EventUpdate):
     return {"id": eid, **_public_event(eid), "archive": bool(ev.get("archive"))}
 
 
-@api_router.post("/events/{eid}/clone", dependencies=[Depends(require_operator)])
-async def clone_event(eid: str):
+@api_router.post("/events/{eid}/clone")
+async def clone_event(eid: str, principal: dict = Depends(require_operator)):
     ev = _require_event(eid)
     if len(EVENTS) >= MAX_EVENTS:
         raise HTTPException(429, "Event capacity reached. Try again later.")
@@ -873,7 +971,7 @@ async def clone_event(eid: str):
         logo=ev.get("logo"), sponsor=ev.get("sponsor", ""), duration_minutes=ev.get("duration_minutes", 0),
         labels=list(ev.get("labels") or []), archive_transcripts=bool(ev.get("archive")),
     )
-    response = await create_event(body)
+    response = await create_event(body, principal)
     created = json.loads(response.body)
     if ev.get("pin_hash"):
         EVENTS[created["id"]] = {**EVENTS[created["id"]], "pin_hash": ev["pin_hash"]}
@@ -1021,10 +1119,11 @@ async def translate_transcript(eid: str, lang: str, body: TranslateRequest, requ
 # Developer API keys: named bearer keys equivalent to the operator code.
 # ---------------------------------------------------------------------------
 def require_key_admin(request: Request):
-    """API keys cannot list, mint or revoke keys: only a signed-in operator can."""
-    require_operator(request)
-    if request.headers.get("authorization", "").startswith("Bearer tbk_"):
+    """API keys cannot list, mint or revoke keys: only a signed-in person can."""
+    principal = require_operator(request)
+    if principal.get("via") == "key":
         raise HTTPException(403, "API keys cannot manage API keys.")
+    return principal
 
 
 class KeyCreate(BaseModel):
@@ -1035,27 +1134,407 @@ def _api_keys():
     return STORE.get("apikeys", []) or []
 
 
-@api_router.get("/keys", dependencies=[Depends(require_key_admin)])
-async def list_keys():
-    return {"keys": [{k: v for k, v in key.items() if k != "hash"} for key in _api_keys()]}
-
-
-@api_router.post("/keys", dependencies=[Depends(require_key_admin)])
-async def create_key(body: KeyCreate):
+def _visible_keys(principal):
     keys = _api_keys()
-    if len(keys) >= 20:
-        raise HTTPException(400, "At most 20 API keys. Revoke one first.")
+    if _rank(principal) < accounts.ROLE_RANK["admin"]:
+        keys = [k for k in keys if k.get("user_id") == principal["id"]]
+    return [{k: v for k, v in key.items() if k != "hash"} for key in keys]
+
+
+@api_router.get("/keys")
+async def list_keys(principal: dict = Depends(require_key_admin)):
+    return {"keys": _visible_keys(principal)}
+
+
+@api_router.post("/keys")
+async def create_key(body: KeyCreate, principal: dict = Depends(require_key_admin)):
+    keys = _api_keys()
+    if len(keys) >= 50:
+        raise HTTPException(400, "At most 50 API keys. Revoke one first.")
     secret = "tbk_" + secrets.token_urlsafe(32)
+    # A key acts as its creator, never above administrator.
+    role = "admin" if _rank(principal) >= accounts.ROLE_RANK["admin"] else principal["role"]
     entry = {"id": secrets.token_hex(6), "name": body.name.strip(), "created": time.time(), "last4": secret[-4:],
-             "hash": hashlib.sha256(secret.encode()).hexdigest()}
+             "user_id": principal["id"], "role": role, "hash": hashlib.sha256(secret.encode()).hexdigest()}
     STORE.set("apikeys", keys + [entry])
     return JSONResponse({"key": secret, **{k: v for k, v in entry.items() if k != "hash"}}, headers={"Cache-Control": "no-store"})
 
 
-@api_router.delete("/keys/{key_id}", dependencies=[Depends(require_key_admin)])
-async def revoke_key(key_id: str):
-    STORE.set("apikeys", [k for k in _api_keys() if k["id"] != key_id])
-    return {"keys": [{k: v for k, v in key.items() if k != "hash"} for key in _api_keys()]}
+@api_router.delete("/keys/{key_id}")
+async def revoke_key(key_id: str, principal: dict = Depends(require_key_admin)):
+    admin = _rank(principal) >= accounts.ROLE_RANK["admin"]
+    STORE.set("apikeys", [k for k in _api_keys() if not (k["id"] == key_id and (admin or k.get("user_id") == principal["id"]))])
+    return {"keys": _visible_keys(principal)}
+
+
+# ---------------------------------------------------------------------------
+# Accounts: owner / admin / presenter, two-factor codes, minute balances.
+# The operator code always acts as the owner (break-glass access).
+# ---------------------------------------------------------------------------
+EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
+
+
+def _temp_password() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+    while True:
+        pw = "".join(secrets.choice(alphabet) for _ in range(14))
+        if not accounts.password_problem(pw):
+            return pw
+
+
+def _create_user(email, name, role, minutes, password=None):
+    users = _users()
+    user = {"id": "u_" + secrets.token_hex(6), "email": email.lower(), "name": (name or "").strip()[:80], "role": role,
+            "created": time.time(), "disabled": False, "pw_hash": accounts.hash_password(password) if password else None,
+            "must_change": bool(password), "balance_seconds": None if minutes is None else max(0, minutes) * 60,
+            "used_seconds": 0, "totp_enabled": False}
+    _save_users(users + [user])
+    return user
+
+
+def _user_or_404(uid):
+    user = _find_user(uid=uid)
+    if not user:
+        raise HTTPException(404, "User not found.")
+    return user
+
+
+def _owners(users=None):
+    return [u for u in (users or _users()) if u["role"] == "owner" and not u.get("disabled")]
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=200)
+    code: str | None = Field(default=None, max_length=12)
+
+
+@api_router.post("/auth/login")
+async def login(body: LoginRequest, request: Request):
+    ip = _client_ip(request)
+    email = body.email.strip().lower()
+    if _rate_limited("login:" + ip, 20) or _rate_limited("login-email:" + email, 10):
+        raise HTTPException(429, "Too many sign-in attempts. Wait a minute.")
+    user = _find_user(email=email)
+    stored = (user or {}).get("pw_hash") or accounts.DUMMY_HASH
+    ok = await anyio.to_thread.run_sync(accounts.verify_password, body.password, stored)
+    if not user or not ok or user.get("disabled") or not user.get("pw_hash"):
+        raise HTTPException(401, "Incorrect email or password.")
+    if user.get("totp_enabled"):
+        if not body.code:
+            return JSONResponse({"detail": "Enter the 6-digit code from your authenticator app.", "totp_required": True}, status_code=401)
+        step = accounts.totp_match(user.get("totp_secret"), body.code, user.get("totp_last", -1))
+        if step is None:
+            raise HTTPException(401, "Incorrect or expired code.")
+        _update_user(user["id"], totp_last=step)
+    _update_user(user["id"], last_login=time.time())
+    token = _new_session(user["id"], "password")
+    return JSONResponse({"token": token, "user": accounts.public_user(_find_user(uid=user["id"]))}, headers={"Cache-Control": "no-store"})
+
+
+@api_router.get("/me")
+async def me(principal: dict = Depends(require_operator)):
+    user = _find_user(uid=principal["id"])
+    return {"principal": {k: principal.get(k) for k in ("id", "role", "email", "name", "via")},
+            "user": accounts.public_user(user) if user else None, "users_exist": bool(STORE.get("users"))}
+
+
+class MeUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+
+
+@api_router.patch("/me")
+async def update_me(body: MeUpdate, principal: dict = Depends(require_key_admin)):
+    user = _user_or_404(principal["id"])
+    if body.name is not None:
+        user = _update_user(user["id"], name=body.name.strip())
+    return accounts.public_user(user)
+
+
+class PasswordChange(BaseModel):
+    current: str = Field(default="", max_length=200)
+    new: str = Field(min_length=1, max_length=200)
+
+
+@api_router.post("/me/password")
+async def change_password(body: PasswordChange, principal: dict = Depends(require_key_admin)):
+    user = _user_or_404(principal["id"])
+    if user.get("pw_hash") and not await anyio.to_thread.run_sync(accounts.verify_password, body.current, user["pw_hash"]):
+        raise HTTPException(400, "The current password is incorrect.")
+    problem = accounts.password_problem(body.new)
+    if problem:
+        raise HTTPException(400, problem)
+    _update_user(user["id"], pw_hash=await anyio.to_thread.run_sync(accounts.hash_password, body.new), must_change=False)
+    return {"status": "ok"}
+
+
+class TotpCode(BaseModel):
+    code: str = Field(min_length=6, max_length=12)
+
+
+@api_router.post("/me/2fa/setup")
+async def totp_setup(principal: dict = Depends(require_key_admin)):
+    user = _user_or_404(principal["id"])
+    secret = accounts.new_totp_secret()
+    _update_user(user["id"], totp_pending=secret)
+    return JSONResponse({"secret": secret, "uri": accounts.otpauth_uri(secret, user["email"])}, headers={"Cache-Control": "no-store"})
+
+
+@api_router.post("/me/2fa/enable")
+async def totp_enable(body: TotpCode, principal: dict = Depends(require_key_admin)):
+    user = _user_or_404(principal["id"])
+    step = accounts.totp_match(user.get("totp_pending"), body.code)
+    if step is None:
+        raise HTTPException(400, "Incorrect code. Check the time on your phone and try again.")
+    _update_user(user["id"], totp_secret=user["totp_pending"], totp_pending=None, totp_enabled=True, totp_last=step)
+    return {"totp_enabled": True}
+
+
+@api_router.post("/me/2fa/disable")
+async def totp_disable(body: TotpCode, principal: dict = Depends(require_key_admin)):
+    user = _user_or_404(principal["id"])
+    if accounts.totp_match(user.get("totp_secret"), body.code, user.get("totp_last", -1)) is None:
+        raise HTTPException(400, "Incorrect or expired code.")
+    _update_user(user["id"], totp_secret=None, totp_enabled=False)
+    return {"totp_enabled": False}
+
+
+class UserCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    name: str = Field(default="", max_length=80)
+    role: Literal["owner", "admin", "presenter"] = "presenter"
+    minutes: float | None = Field(default=None, ge=0, le=10_000_000)
+
+
+class UserUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    role: Literal["owner", "admin", "presenter"] | None = None
+    disabled: bool | None = None
+    minutes_balance: float | None = Field(default=None, ge=0, le=10_000_000)
+    unlimited: bool | None = None
+
+
+def _check_role_change(principal, target_role):
+    if target_role == "owner" and principal["role"] != "owner":
+        raise HTTPException(403, "Only an owner can create or edit owners.")
+
+
+@api_router.get("/users")
+async def list_users(principal: dict = Depends(require_admin)):
+    return {"users": [accounts.public_user(u) for u in _users()]}
+
+
+@api_router.get("/directory")
+async def directory(principal: dict = Depends(require_key_admin)):
+    """Colleagues a person can transfer minutes to (active accounts with a minute balance)."""
+    return {"users": [{"id": u["id"], "name": u.get("name") or u["email"], "email": u["email"]}
+                      for u in _users() if not u.get("disabled") and u.get("balance_seconds") is not None and u["id"] != principal["id"]]}
+
+
+@api_router.post("/users")
+async def create_user(body: UserCreate, principal: dict = Depends(require_admin)):
+    email = body.email.strip().lower()
+    if not EMAIL_RE.match(email):
+        raise HTTPException(400, "Enter a valid email address.")
+    if _find_user(email=email):
+        raise HTTPException(409, "A user with this email already exists.")
+    if len(_users()) >= int(os.environ.get("MAX_USERS", "500")):
+        raise HTTPException(400, "User limit reached.")
+    _check_role_change(principal, body.role)
+    password = _temp_password()
+    user = _create_user(email, body.name, body.role, body.minutes, password)
+    return JSONResponse({"user": accounts.public_user(user), "temporary_password": password}, headers={"Cache-Control": "no-store"})
+
+
+@api_router.patch("/users/{uid}")
+async def update_user(uid: str, body: UserUpdate, principal: dict = Depends(require_admin)):
+    user = _user_or_404(uid)
+    if user["role"] == "owner" or body.role == "owner":
+        _check_role_change(principal, "owner")
+    fields = {}
+    if body.name is not None:
+        fields["name"] = body.name.strip()
+    if body.role is not None:
+        fields["role"] = body.role
+    if body.disabled is not None:
+        if uid == principal["id"] and body.disabled:
+            raise HTTPException(400, "You cannot disable your own account.")
+        fields["disabled"] = body.disabled
+    if body.unlimited:
+        fields["balance_seconds"] = None
+    elif body.minutes_balance is not None:
+        fields["balance_seconds"] = body.minutes_balance * 60
+    after = [{**u, **fields} if u["id"] == uid else u for u in _users()]
+    if user["role"] == "owner" and not _owners(after):
+        raise HTTPException(400, "Keep at least one active owner.")
+    return accounts.public_user(_update_user(uid, **fields))
+
+
+@api_router.delete("/users/{uid}")
+async def delete_user(uid: str, principal: dict = Depends(require_admin)):
+    user = _user_or_404(uid)
+    if user["role"] == "owner":
+        _check_role_change(principal, "owner")
+        if len(_owners()) <= 1:
+            raise HTTPException(400, "Keep at least one active owner.")
+    if uid == principal["id"]:
+        raise HTTPException(400, "You cannot delete your own account.")
+    _save_users([u for u in _users() if u["id"] != uid])
+    STORE.set("apikeys", [k for k in _api_keys() if k.get("user_id") != uid])
+    return {"users": [accounts.public_user(u) for u in _users()]}
+
+
+@api_router.post("/users/{uid}/reset")
+async def reset_user(uid: str, principal: dict = Depends(require_admin)):
+    """New temporary password and two-factor reset (lost phone)."""
+    user = _user_or_404(uid)
+    if user["role"] == "owner":
+        _check_role_change(principal, "owner")
+    password = _temp_password()
+    _update_user(uid, pw_hash=accounts.hash_password(password), must_change=True, totp_enabled=False, totp_secret=None)
+    return JSONResponse({"temporary_password": password}, headers={"Cache-Control": "no-store"})
+
+
+class MinuteTransfer(BaseModel):
+    to: str = Field(max_length=40)
+    minutes: float = Field(gt=0, le=10_000_000)
+    from_user: str | None = Field(default=None, max_length=40)
+
+
+@api_router.post("/minutes/transfer")
+async def transfer_minutes(body: MinuteTransfer, principal: dict = Depends(require_key_admin)):
+    """Move minutes between accounts (Wordly 'transfer minutes')."""
+    admin = _rank(principal) >= accounts.ROLE_RANK["admin"]
+    source_id = body.from_user or principal["id"]
+    if source_id != principal["id"] and not admin:
+        raise HTTPException(403, "You can only transfer your own minutes.")
+    target = _user_or_404(body.to)
+    seconds = body.minutes * 60
+    if source_id == "owner":
+        source = None
+    else:
+        source = _user_or_404(source_id)
+    if source is not None and source["balance_seconds"] is not None:
+        if source["balance_seconds"] < seconds:
+            raise HTTPException(400, "Not enough minutes to transfer.")
+        _update_user(source["id"], balance_seconds=source["balance_seconds"] - seconds)
+    elif not admin:
+        raise HTTPException(400, "Unlimited accounts cannot transfer minutes.")
+    if target["balance_seconds"] is not None:
+        target = _update_user(target["id"], balance_seconds=target["balance_seconds"] + seconds)
+    return {"to": accounts.public_user(target), "from": accounts.public_user(_find_user(uid=source_id)) if source else None}
+
+
+def _charge_minutes(owner_id, seconds):
+    if not owner_id or owner_id == "owner":
+        return
+    user = _find_user(uid=owner_id)
+    if not user:
+        return
+    fields = {"used_seconds": round((user.get("used_seconds") or 0) + seconds, 1)}
+    if user.get("balance_seconds") is not None:
+        fields["balance_seconds"] = max(0.0, user["balance_seconds"] - seconds)
+    _update_user(owner_id, **fields)
+
+
+def _check_balance(principal):
+    user = _find_user(uid=principal.get("id"))
+    if user and user.get("balance_seconds") is not None and user["balance_seconds"] <= 0:
+        raise HTTPException(402, "No translation minutes left on your account. Ask an administrator for more minutes.")
+
+
+# ---------------------------------------------------------------------------
+# Stream ingest (RTMP / RTMPS / SRT through MediaMTX)
+# ---------------------------------------------------------------------------
+def _ingest_key(eid):
+    ev = EVENTS[eid]
+    if not ev.get("ingest_key"):
+        ev = {**ev, "ingest_key": secrets.token_urlsafe(18)}
+        EVENTS[eid] = ev
+    return ev["ingest_key"]
+
+
+def _ingest_info(eid):
+    host = os.environ.get("INGEST_PUBLIC_HOST") or urlsplit(_public_origin() or "http://localhost").hostname or "localhost"
+    key = _ingest_key(eid)
+    rtmp_port = os.environ.get("INGEST_RTMP_PORT", "1935")
+    srt_port = os.environ.get("INGEST_SRT_PORT", "8890")
+    rtmps_port = os.environ.get("INGEST_RTMPS_PORT", "")
+    return {
+        "enabled": ingest.enabled(),
+        "rtmp_url": f"rtmp://{host}:{rtmp_port}/live", "stream_key": key,
+        "rtmp_full": f"rtmp://{host}:{rtmp_port}/live/{key}",
+        "rtmps_url": f"rtmps://{host}:{rtmps_port}/live" if rtmps_port else None,
+        "srt_url": f"srt://{host}:{srt_port}?streamid=publish:live/{key}" if srt_port else None,
+    }
+
+
+@api_router.get("/events/{eid}/ingest", dependencies=[Depends(require_operator)])
+async def get_ingest(eid: str):
+    _require_event(eid)
+    return JSONResponse(_ingest_info(eid), headers={"Cache-Control": "no-store"})
+
+
+@api_router.post("/events/{eid}/ingest/rotate", dependencies=[Depends(require_operator)])
+async def rotate_ingest(eid: str):
+    _require_event(eid)
+    EVENTS[eid] = {**EVENTS[eid], "ingest_key": secrets.token_urlsafe(18)}
+    return JSONResponse(_ingest_info(eid), headers={"Cache-Control": "no-store"})
+
+
+class IngestAuth(BaseModel):
+    user: str = ""
+    password: str = ""
+    action: str = ""
+    path: str = ""
+    protocol: str = ""
+    ip: str = ""
+    query: str = ""
+
+
+@api_router.post("/ingest/auth")
+async def ingest_auth(body: IngestAuth):
+    """MediaMTX asks before every publish/read. Publish needs a live event's stream key."""
+    path = body.path.strip("/")
+    if not path.startswith("live/"):
+        raise HTTPException(401, "Unknown path.")
+    key = path[5:]
+    if body.action == "publish":
+        _prune_events()
+        if any(secrets.compare_digest(key, ev.get("ingest_key") or "-") for ev in EVENTS.values()):
+            return {"ok": True}
+        raise HTTPException(401, "Unknown stream key.")
+    if body.action == "read" and body.user == "tb" and secrets.compare_digest(body.password, ingest.read_password()):
+        return {"ok": True}
+    raise HTTPException(401, "Not allowed.")
+
+
+async def _run_ingest(websocket: WebSocket, eid: str):
+    stopped = asyncio.Event()
+    key = _ingest_key(eid)
+
+    async def send_status(live):
+        await websocket.send_json({"type": "ingest", "live": live})
+
+    async def watch_close():
+        try:
+            while True:
+                msg = await websocket.receive()
+                if msg["type"] == "websocket.disconnect":
+                    break
+        except Exception:
+            pass
+        stopped.set()
+
+    watcher = asyncio.create_task(watch_close())
+    try:
+        await websocket.send_json({"type": "ingest", "live": False})
+        await ingest.relay(key, websocket.send_bytes, send_status, stopped)
+    except Exception:
+        logger.info("Ingest relay ended for %s", eid)
+    finally:
+        stopped.set()
+        watcher.cancel()
 
 
 def _require_event(eid):
@@ -1110,10 +1589,12 @@ async def unpublish_summary(eid: str, lang: str):
     return {"summaries": summaries}
 
 
-@api_router.get("/usage", dependencies=[Depends(require_operator)])
-async def usage():
+@api_router.get("/usage")
+async def usage(principal: dict = Depends(require_operator)):
     month = STORE.get(_month_key(), {}) or {}
+    user = _find_user(uid=principal["id"])
     return {
+        "me": accounts.public_user(user) if user else None,
         "month": _month_key().split(":", 1)[1],
         "minutes_by_language": {k: round(v / 60, 1) for k, v in month.items()},
         "total_minutes": round(sum(month.values()) / 60, 1),
@@ -1276,8 +1757,14 @@ async def _fanout(room, method, data):
     await asyncio.gather(*(deliver(listener) for listener in targets))
 
 
+def _out_of_minutes(eid) -> bool:
+    owner = _find_user(uid=(EVENTS.get(eid) or {}).get("owner"))
+    return bool(owner and owner.get("balance_seconds") is not None and owner["balance_seconds"] <= 0)
+
+
 async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str = "pcm16", rate: int = 16000, counts_usage: bool = True):
     started = time.monotonic()
+    charge = counts_usage and room["lang"] != SOURCE_LANG
     room["operator"] = websocket
     room["init"] = None
     room["format"] = audio_format
@@ -1291,6 +1778,15 @@ async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str 
             msg = await websocket.receive()
             if msg["type"] == "websocket.disconnect":
                 break
+            # Charge minutes as they are used and stop when the account is empty.
+            if charge and time.monotonic() - started >= 30:
+                now = time.monotonic()
+                _record_usage(eid, room["lang"], now - started)
+                started = now
+                if _out_of_minutes(eid):
+                    await websocket.send_json({"type": "error", "detail": "No translation minutes left on this account."})
+                    await websocket.close(code=4402)
+                    break
             if msg.get("bytes") is not None:
                 data = msg["bytes"]
                 if len(data) > 262144:
@@ -1320,7 +1816,7 @@ async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str 
     finally:
         room["operator"] = None
         room["init"] = None
-        if counts_usage and room["lang"] != SOURCE_LANG:
+        if charge:
             try:
                 _record_usage(eid, room["lang"], time.monotonic() - started)
             except Exception:  # usage is informative; never break teardown
@@ -1413,6 +1909,16 @@ async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener", l
             return
         room["operator"] = websocket
         await _run_operator(websocket, eid, room, "pcm16", 16000, counts_usage=False)
+        return
+    if role == "ingest":
+        principal = _principal_from_token(auth.get("bearer", ""))
+        if not principal or (_rank(principal) < accounts.ROLE_RANK["admin"] and EVENTS[eid].get("owner") != principal["id"]):
+            await websocket.close(code=4401)
+            return
+        if not ingest.enabled():
+            await websocket.close(code=4501)
+            return
+        await _run_ingest(websocket, eid)
         return
     if lang == SOURCE_LANG and role != "operator":
         await websocket.close(code=4403)

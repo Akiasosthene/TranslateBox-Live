@@ -74,12 +74,12 @@ export class ExtraChannel {
     this.broadcaster?.sendCaption(this.captions ? applyGlossary(this.text, this.rules, this.lang) : "");
   }
 
-  async start({ event, deviceId, instructions, ambient }) {
+  async start({ event, deviceId, instructions, ambient, source }) {
     this._set("starting");
     this.text = "";
     this.labelled = "";
     this.recorder.reset();
-    await this.engine.start({ deviceId, targetLanguage: this.lang, instructions, ambient });
+    await this.engine.start({ deviceId, source, targetLanguage: this.lang, instructions, ambient });
     if (!this.engine.active) throw new Error("cancelled");
     await this.engine.programReady;
     const b = new OperatorBroadcaster(`${WS_BASE}/api/ws/${event.id}?role=operator&lang=${encodeURIComponent(this.lang)}`, {

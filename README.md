@@ -80,6 +80,17 @@ docker compose up -d --build
 - **Voix doublée** : pour chaque langue traduite, un fichier WAV avec la voix studio, calé sur le minutage de la session, pour doubler une vidéo enregistrée.
 - **Connexion SSO (Google, Microsoft…)** : renseigner `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOWED` (courriels ou `@domaine`) et `PUBLIC_ORIGIN`, puis déclarer `https://<domaine>/api/auth/sso/callback` comme URI de redirection chez le fournisseur. Le code opérateur reste valable. Les sessions SSO durent `SSO_SESSION_HOURS` (12 h) et sont perdues au redémarrage du backend.
 
+## Plateforme (V3) : comptes, flux RTMP/SRT, apps mobiles
+
+- **Parcours** : `/` accueil public avec « Rejoindre » par code ; `/login` connexion ; `/present` console ; `/portal/sessions`, `/portal/transcripts`, `/portal/activity`, `/portal/users`, `/portal/account`. Menu en haut de l’app, barre de contrôle du direct collée en haut de la console.
+- **Comptes** : Portail → Utilisateurs (avec le code opérateur la première fois) → créer votre compte **Propriétaire**, puis vous connecter avec votre courriel. Rôles : propriétaire, administrateur, présentateur (ne voit que ses sessions). Mot de passe temporaire affiché une fois ; réinitialisation (mot de passe + double authentification) par un administrateur. Sessions de connexion conservées 12 h (`SSO_SESSION_HOURS`), même après un redémarrage. Le code opérateur reste un accès propriétaire de secours.
+- **Double authentification** : Compte → « Activer avec une application d’authentification » (Google/Microsoft Authenticator, 1Password).
+- **Minutes** : illimitées par défaut ; un administrateur fixe un solde par utilisateur et transfère des minutes ; un présentateur peut donner ses minutes à un collègue. Le temps de diffusion est décompté toutes les 30 s et la diffusion s’arrête quand le solde est à zéro.
+- **SSO** : un courriel invité dans Utilisateurs peut se connecter par SSO même hors `OIDC_ALLOWED` ; les nouveaux comptes SSO reçoivent `OIDC_DEFAULT_ROLE` (présentateur par défaut).
+- **Réunion ou flux (RTMP / SRT)** : console → Source audio → « Réunion ou flux ». Copier l’URL du serveur et la clé de flux dans Zoom (diffusion personnalisée), Teams (app « Custom Streaming », stratégie LiveStreamingMode), Webex, OBS ou vMix. Le son arrive dans la console et part en traduction comme un micro. Service `ingest` (MediaMTX) : ports **1935/tcp** (RTMP) et **8890/udp** (SRT) à ouvrir dans le pare-feu. RTMPS : monter un certificat et définir `MTX_RTMPENCRYPTION=optional`, `MTX_RTMPSERVERKEY`, `MTX_RTMPSERVERCERT`, `INGEST_RTMPS_PORT`. YouTube et Vimeo sont des destinations : pour les atteindre en même temps, diffuser en multiple depuis OBS ou Restream.
+- **Robots de réunion** (un participant automatique qui rejoint Zoom/Teams/Meet) : non inclus ; ils exigent une app enregistrée chez chaque éditeur. L’entrée RTMP couvre Zoom, Teams et Webex sans robot.
+- **Apps mobiles** : dossier `mobile/` (Capacitor). GitHub Actions « Mobile apps » produit un APK Android de test ; iOS se compile sur Mac avec un compte Apple Developer. Ajouter `https://localhost,capacitor://localhost` à `CORS_ORIGINS`. Voir [mobile/README.md](mobile/README.md).
+
 ## Portail, codes de session, archives (V2.3)
 
 - **Code de session** : chaque événement a un code court (ex. `UHEG3270`) affiché dans la console, sur l’écran de salle et la page d’écoute. Les auditeurs tapent ce code sur `/join` (ou ouvrent `/join/UHEG3270`) au lieu de scanner le QR code.

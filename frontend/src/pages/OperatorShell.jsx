@@ -1,8 +1,8 @@
 import React from "react";
 import { Outlet } from "react-router-dom";
-import OperatorAccess from "@/components/OperatorAccess";
+import { AuthGate } from "@/context/AuthContext";
 import { TranslationProvider } from "@/context/TranslationContext";
 
 export default function OperatorShell() {
-  return <OperatorAccess><TranslationProvider><Outlet /></TranslationProvider></OperatorAccess>;
+  return <AuthGate><TranslationProvider><Outlet /></TranslationProvider></AuthGate>;
 }

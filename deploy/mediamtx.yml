@@ -1,0 +1,32 @@
+# MediaMTX: receives RTMP / RTMPS / SRT streams (Zoom, Teams, Webex, OBS,
+# YouTube, Vimeo) for TranslateBox. Every publish and read is checked by the
+# backend: publishing needs an event's stream key, reading is backend-only.
+logLevel: warn
+logDestinations: [stdout]
+readTimeout: 10s
+writeTimeout: 10s
+
+authMethod: http
+authHTTPAddress: http://backend:8001/api/ingest/auth
+authHTTPExclude: []
+
+api: no
+metrics: no
+pprof: no
+playback: no
+rtsp: no
+hls: no
+webrtc: no
+
+rtmp: yes
+rtmpAddress: :1935
+# RTMPS: set MTX_RTMPENCRYPTION=optional plus MTX_RTMPSERVERKEY / MTX_RTMPSERVERCERT
+# (paths to the TLS key and certificate mounted into the container).
+rtmpEncryption: "no"
+rtmpsAddress: :1936
+
+srt: yes
+srtAddress: :8890
+
+paths:
+  all_others:
