@@ -17,9 +17,15 @@ const Join = lazy(() => import("@/pages/Join"));
 const Portal = lazy(() => import("@/pages/Portal"));
 const Home = lazy(() => import("@/pages/Home"));
 const Login = lazy(() => import("@/pages/Login"));
-const Solutions = lazy(() => import("@/pages/Solutions"));
-const Security = lazy(() => import("@/pages/Security"));
-const Demo = lazy(() => import("@/pages/Demo"));
+const site = () => import("@/pages/SitePages");
+const ProductPage = lazy(() => site().then((m) => ({ default: m.ProductPage })));
+const ProductsIndex = lazy(() => site().then((m) => ({ default: m.ProductsIndex })));
+const SolutionPage = lazy(() => site().then((m) => ({ default: m.SolutionPage })));
+const SolutionsIndex = lazy(() => site().then((m) => ({ default: m.SolutionsIndex })));
+const HowItWorks = lazy(() => site().then((m) => ({ default: m.HowItWorks })));
+const FaqPage = lazy(() => site().then((m) => ({ default: m.FaqPage })));
+const SecurityPage = lazy(() => site().then((m) => ({ default: m.SecurityPage })));
+const DemoPage = lazy(() => site().then((m) => ({ default: m.DemoPage })));
 const Loading = () => <div className="min-h-screen bg-[#0A0D14]" aria-busy="true" />;
 
 function App() {
@@ -35,10 +41,15 @@ function App() {
             <Route path="/join/:code" element={<Join />} />
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/solutions" element={<Solutions />} />
-            <Route path="/securite" element={<Security />} />
-            <Route path="/security" element={<Security />} />
-            <Route path="/demo" element={<Demo />} />
+            <Route path="/produits" element={<ProductsIndex />} />
+            <Route path="/produits/:slug" element={<ProductPage />} />
+            <Route path="/solutions" element={<SolutionsIndex />} />
+            <Route path="/solutions/:slug" element={<SolutionPage />} />
+            <Route path="/comment-ca-marche" element={<HowItWorks />} />
+            <Route path="/faq" element={<FaqPage />} />
+            <Route path="/securite" element={<SecurityPage />} />
+            <Route path="/security" element={<SecurityPage />} />
+            <Route path="/demo" element={<DemoPage />} />
             <Route element={<OperatorShell />}>
               <Route path="/present" element={<Console />} />
               <Route path="/portal" element={<Portal />} />

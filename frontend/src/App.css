@@ -55,7 +55,8 @@
 .tb-console-hero p { font-size:13px; color:#c6d7f1; }
 .tb-session-badge { font-size:11px; color:#b9e9ff; border:1px solid #ffffff30; padding:12px 15px; border-radius:30px; white-space:nowrap; }
 .tb-console [data-testid="start-translation-button"] { background:#167db4; box-shadow:0 8px 20px #168bc32a; }
-.tb-listener { background:radial-gradient(ellipse at top,#214888,#122765 70%); }
+/* !important: the shell also sets an inline glow, which would otherwise leave the page transparent in light mode. */
+.tb-listener { background:radial-gradient(ellipse at top,#214888,#122765 70%) !important; }
 .tb-listener [data-testid="listener-listen-button"] { background:#168dc5; }
 @media(max-width:800px) { .tb-hero { gap:36px; padding-top:35px; grid-template-columns:1fr; } .tb-intro { max-width:580px; } .tb-access-wrap { max-width:550px; width:100%; margin:auto; } .tb-step-grid { grid-template-columns:1fr; } .tb-console-hero { align-items:flex-start; flex-direction:column; } .tb-nav-link { display:none; } }
 @media(max-width:480px) { .tb-nav { padding:20px; gap:12px; } .tb-brand { font-size:20px; gap:7px; } .tb-brand > svg { width:30px; } .tb-nav-cta { padding:11px; font-size:10px; } .tb-nav-cta svg { display:none; } .tb-hero { padding:25px 20px 45px; } .tb-login { padding:24px; } .tb-preview { margin:0 12px; padding:15px; } .tb-intro h1 { letter-spacing:-1.5px; } }
@@ -90,3 +91,4 @@
 .tb-feature-grid article > div { align-items:center; }
 .tb-feature-grid article > div svg:last-child { color:#c4d3f1; }
 .tb-footer a { color:#c5d3ec; }
+.tb-brand-compact small { display:none; }

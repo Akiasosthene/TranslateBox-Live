@@ -24,7 +24,7 @@ export const Header = () => {
   const { me, signOut } = useAuth();
   const navigate = useNavigate();
   const admin = isAdmin(me);
-  const who = me?.user?.name || me?.user?.email || me?.principal?.name || "";
+  const who = me?.user?.name || me?.user?.email || (me?.principal?.via === "code" ? t("Operator code") : me?.principal?.name) || "";
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [installed, setInstalled] = useState(false);
 

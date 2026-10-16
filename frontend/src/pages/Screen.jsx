@@ -63,7 +63,7 @@ function LangPanel({ id, lang, pin, wanted, onFatal, light, count }) {
     <section className={`min-h-0 flex flex-col rounded-2xl p-5 ${light ? "bg-slate-100" : "bg-white/[0.04] border border-white/10"}`} data-testid={`screen-panel-${lang}`}>
       <p className="text-lg font-bold flex items-center gap-2"><span className="text-2xl">{l.flag}</span>{l.native}
         <span className={`ml-auto h-2.5 w-2.5 rounded-full ${s.live ? "bg-emerald-400" : "bg-slate-500"}`} /></p>
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-col justify-end" aria-live="polite">
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col justify-end" aria-live="polite" style={{ maskImage: "linear-gradient(transparent, #000 22%)", WebkitMaskImage: "linear-gradient(transparent, #000 22%)" }}>
         {paras.length ? paras.map((p, i) => (
           <p key={`${i}-${p.slice(0, 10)}`} className={`font-semibold leading-snug ${i === paras.length - 1 ? "" : "opacity-50"}`}
             style={{ fontSize: count > 2 ? "clamp(20px, 2.2vw, 40px)" : "clamp(24px, 3vw, 52px)", marginTop: "0.3em" }}>{p.slice(-300)}</p>
@@ -115,7 +115,19 @@ export default function Screen() {
 
   const targetsAll = info?.targets || (info?.target ? [info.target] : []);
   const panels = multi.filter((l) => targetsAll.includes(l)).slice(0, 4);
-  const { caption, live, connected, wasLive } = useCaptionStream(id, panels.length > 1 ? null : lang, pin, wanted, fatal);
+  const single = useCaptionStream(id, panels.length > 1 ? null : lang, pin, wanted, fatal);
+  const { caption, connected } = single;
+  // In multi-language mode the header follows the event's live state.
+  const [multiLive, setMultiLive] = useState(false);
+  useEffect(() => {
+    if (panels.length < 2) return undefined;
+    const poll = () => fetch(`${API}/events/${id}`).then((r) => (r.ok ? r.json() : null)).then((d) => d && setMultiLive(!!d.live)).catch(() => {});
+    poll();
+    const iv = setInterval(poll, 5000);
+    return () => clearInterval(iv);
+  }, [id, panels.length]);
+  const live = panels.length > 1 ? multiLive : single.live;
+  const wasLive = panels.length > 1 ? false : single.wasLive;
 
   useEffect(() => {
     let lock = null;

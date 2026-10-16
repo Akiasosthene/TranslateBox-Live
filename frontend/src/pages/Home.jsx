@@ -1,155 +1,109 @@
-import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Check, Plus, Headphones, Captions, Monitor, UserRound, FileText, Sparkles, AudioLines, Server, MicOff, Archive, ShieldCheck } from "lucide-react";
-import { SiteLayout, useCopy } from "../site/SiteLayout";
-import { LiveStage } from "../site/LiveStage";
-import { HOME, SOLUTIONS } from "../site/content";
-import { TARGET_LANGUAGES, CASCADE_LANGUAGES } from "../lib/languages";
-import { useLocale } from "../context/LocaleContext";
-
-const PRODUCT_ICONS = [Headphones, Captions, Monitor, UserRound, FileText, Sparkles, AudioLines];
-const SEC_ICONS = [Server, MicOff, Archive, ShieldCheck];
-
-function JoinBox({ copy }) {
-  const navigate = useNavigate();
-  const [code, setCode] = useState("");
-  const clean = code.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
-  return (
-    <form className="ts-join" data-testid="home-join" onSubmit={(e) => { e.preventDefault(); if (clean.length >= 4) navigate(`/join/${clean}`); }}>
-      <input aria-label={copy.ctaJoin} value={clean.length > 4 ? `${clean.slice(0, 4)}-${clean.slice(4)}` : clean} onChange={(e) => setCode(e.target.value)} placeholder={copy.codePlaceholder} autoComplete="off" spellCheck={false} data-testid="home-code" />
-      <button className="ts-btn ts-btn-ghost" style={{ padding: "10px 16px" }} disabled={clean.length < 4}>{copy.ctaJoin}<ArrowRight size={16} /></button>
-    </form>
-  );
-}
-
-function Solutions() {
-  const sols = useCopy(SOLUTIONS);
-  const [active, setActive] = useState(0);
-  const s = sols[active];
-  return (
-    <div className="ts-sol">
-      <div className="ts-sol-tabs" role="tablist">
-        {sols.map((x, i) => <button key={x.slug} role="tab" aria-selected={i === active} onClick={() => setActive(i)}>{x.name}</button>)}
-      </div>
-      <div className="ts-sol-panel" key={s.slug} role="tabpanel">
-        <h3>{s.title}</h3>
-        <p>{s.text}</p>
-        <ul>{s.points.map((p) => <li key={p}><Check size={18} />{p}</li>)}</ul>
-        <Link className="ts-btn ts-btn-ink" to={`/solutions#${s.slug}`}>{s.name}<ArrowRight size={16} /></Link>
-      </div>
-    </div>
-  );
-}
+import React from "react";
+import { Link } from "react-router-dom";
+import { ArrowRight, CircleCheck, ShieldCheck } from "lucide-react";
+import { SiteLayout, useCopy, Icon, img } from "../site/SiteLayout";
+import { HOME, PRODUCTS, SOLUTIONS, COMMON } from "../site/content";
 
 export default function Home() {
-  const c = useCopy(HOME);
-  const { language } = useLocale();
-  const fr = language === "fr";
-  const direct = TARGET_LANGUAGES.map((l) => l.native);
-  const more = CASCADE_LANGUAGES.map((l) => l.native);
-  const rowA = [...direct, ...more.slice(0, 14)];
-  const rowB = more.slice(14);
+  const h = useCopy(HOME);
+  const products = useCopy(PRODUCTS);
+  const solutions = useCopy(SOLUTIONS);
+  const c = useCopy(COMMON);
   return (
     <SiteLayout>
-      <section className="ts-hero ts-grain">
+      <section className="ts-hero">
         <div className="ts-wrap">
           <div className="ts-hero-grid">
             <div>
-              <span className="ts-kicker"><i />{c.kicker}</span>
-              <h1 className="ts-h1">{c.title.map((t) => <span key={t}>{t}</span>)}</h1>
-              <p className="ts-lead">{c.lead}</p>
-              <div className="ts-hero-ctas">
-                <Link className="ts-btn ts-btn-primary" to="/demo">{c.ctaDemo}<ArrowRight size={16} /></Link>
-                <JoinBox copy={c} />
+              <span className="ts-tagline">{h.hero.tagline}</span>
+              <h1 className="ts-h1">{h.hero.title}</h1>
+              <p className="ts-lead">{h.hero.lead}</p>
+              <div className="ts-ctas">
+                <Link to="/demo" className="ts-btn ts-btn-primary">{h.hero.cta}<ArrowRight size={18} /></Link>
+                <Link to="/comment-ca-marche" className="ts-btn ts-btn-outline">{h.hero.cta2}</Link>
+              </div>
+              <div className="ts-slogans">
+                {h.hero.slogans.map(([icon, title, text]) => <div key={title}><i><Icon name={icon} size={18} /></i><span><b>{title}</b><small>{text}</small></span></div>)}
               </div>
             </div>
-            <LiveStage speakerLabel={fr ? "Orateur · anglais" : "Speaker · English"} phoneLabel={fr ? "Votre téléphone" : "Your phone"} />
+            <div className="ts-visual">
+              <div className="ts-monitor"><img src={img("screen")} alt={h.hero.title} width="1600" height="900" /></div>
+              <div className="ts-phone"><img src={img("captions")} alt="" width="390" height="844" /></div>
+            </div>
           </div>
-          <div className="ts-proof">{c.proof.map(([n, l]) => <div key={l}><b>{n}</b><span>{l}</span></div>)}</div>
+          <div className="ts-icons">
+            {h.icons.map(([icon, label, slug]) => <Link key={slug} to={`/produits/${slug}`}><span><Icon name={icon} /></span>{label}</Link>)}
+          </div>
         </div>
       </section>
 
-      <section className="ts-section" id="product">
-        <div className="ts-wrap ts-reveal">
-          <span className="ts-eyebrow">{c.lifecycleKicker}</span>
-          <h2 className="ts-h2">{c.lifecycleTitle}</h2>
-          <div className="ts-life">
-            {c.lifecycle.map((b) => (
-              <article key={b.tag}><span className="tag">{b.tag}</span><h3>{b.title}</h3><ul>{b.items.map((i) => <li key={i}><Check size={16} />{i}</li>)}</ul></article>
+      <section className="ts-section navy" style={{ padding: "54px 0" }}>
+        <div className="ts-wrap ts-stats">{h.stats.map(([n, l]) => <div key={l}><b>{n}</b><span>{l}</span></div>)}</div>
+      </section>
+
+      <section className="ts-section">
+        <div className="ts-wrap">
+          <div className="ts-center"><h2 className="ts-h2">{h.life.title}</h2><p className="ts-lead">{h.life.lead}</p></div>
+          <div className="ts-cols">
+            {h.life.cols.map((col) => (
+              <article className="ts-col" key={col.tag}>
+                <div className={`ts-col-img ${col.image === "captions" ? "phone" : ""}`}><img src={img(col.image)} alt="" loading="lazy" /></div>
+                <div className="ts-col-body"><h3>{col.tag}</h3><ul className="ts-check">{col.items.map((i) => <li key={i}><CircleCheck size={18} />{i}</li>)}</ul></div>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="ts-section dark ts-grain">
-        <div className="ts-wrap ts-reveal">
-          <span className="ts-eyebrow">TranslateBox</span>
-          <h2 className="ts-h2">{c.productsTitle}</h2>
-          <div className="ts-bento">
-            {c.products.map(([title, text], i) => { const Icon = PRODUCT_ICONS[i]; return <article key={title}><Icon /><h3>{title}</h3><p>{text}</p></article>; })}
+      <div className="ts-wrap">
+        <div className="ts-trust"><strong>{h.trust.title}</strong>{h.trust.items.map((t) => <span key={t}><ShieldCheck size={16} />{t}</span>)}</div>
+      </div>
+
+      <section className="ts-section">
+        <div className="ts-wrap">
+          <div className="ts-center"><h2 className="ts-h2">{h.bundle.title}</h2><p className="ts-lead">{h.bundle.lead}</p></div>
+          <div className="ts-tiles">
+            {products.map((p) => <Link key={p.slug} to={`/produits/${p.slug}`} className="ts-tile"><span><Icon name={p.icon} size={22} /></span><h3>{p.name}</h3><p>{p.short}</p></Link>)}
+          </div>
+        </div>
+      </section>
+
+      <section className="ts-section soft">
+        <div className="ts-wrap">
+          <h2 className="ts-h2">{h.benefits.title}</h2>
+          <div className="ts-benefits">
+            <ul>{h.benefits.items.map(([t, p]) => <li key={t}><b>{t}</b><p>{p}</p></li>)}</ul>
+            <div className="ts-ben-visual"><div className="ts-phone"><img src={img("phone")} alt="" loading="lazy" width="390" height="844" /></div></div>
           </div>
         </div>
       </section>
 
       <section className="ts-section">
-        <div className="ts-wrap ts-reveal">
-          <h2 className="ts-h2">{c.stepsTitle}</h2>
-          <div className="ts-steps">{c.steps.map(([title, text], i) => <article key={title}><b>{i + 1}</b><h3>{title}</h3><p>{text}</p></article>)}</div>
+        <div className="ts-wrap">
+          <div className="ts-center"><h2 className="ts-h2">{h.segments.title}</h2><p className="ts-lead">{h.segments.lead}</p></div>
+          <div className="ts-segments">
+            {solutions.map((s) => <Link key={s.slug} to={`/solutions/${s.slug}`} className="ts-seg"><span><Icon name={s.icon} /></span><div><h3>{s.name}</h3><p>{s.title}</p></div></Link>)}
+          </div>
         </div>
       </section>
 
-      <section className="ts-section alt">
-        <div className="ts-wrap ts-reveal">
-          <span className="ts-eyebrow">{c.solutionsKicker}</span>
-          <h2 className="ts-h2">{c.solutionsTitle}</h2>
-          <Solutions />
+      <section className="ts-section soft" id="faq">
+        <div className="ts-wrap">
+          <div className="ts-center"><h2 className="ts-h2">{h.features.title}</h2></div>
+          <div className="ts-qa">
+            {h.features.items.map(([q, a, label, to]) => <article key={q}><h3>{q}</h3><p>{a}</p><Link to={to} className="ts-link">{label}<ArrowRight size={16} /></Link></article>)}
+          </div>
         </div>
       </section>
 
-      <section className="ts-section" id="integrations">
-        <div className="ts-wrap ts-reveal">
-          <h2 className="ts-h2">{c.integrationsTitle}</h2>
-          <p className="ts-sub">{c.integrationsLead}</p>
-          <div className="ts-int">{c.integrations.map((x) => <span key={x}>{x}</span>)}</div>
-        </div>
-      </section>
-
-      <section className="ts-section dark ts-grain" id="languages">
-        <div className="ts-wrap ts-reveal">
-          <h2 className="ts-h2">{c.languagesTitle}</h2>
-          <p className="ts-sub">{c.languagesLead}</p>
-        </div>
-        <div className="ts-marquee" aria-hidden="true">
-          <div className="ts-marquee-row">{[...rowA, ...rowA].map((n, i) => <span key={i} className={direct.includes(n) ? "direct" : ""}>{n}</span>)}</div>
-          <div className="ts-marquee-row rev">{[...rowB, ...rowB].map((n, i) => <span key={i}>{n}</span>)}</div>
-        </div>
-        <div className="ts-wrap ts-legend"><span><i className="direct" />{fr ? "Interprétation directe" : "Direct interpretation"}</span><span><i />{fr ? "Texte + voix studio" : "Text + studio voice"}</span></div>
-      </section>
-
-      <section className="ts-section" id="security">
-        <div className="ts-wrap ts-reveal">
-          <h2 className="ts-h2">{c.securityTitle}</h2>
-          <div className="ts-sec">{c.security.map(([title, text], i) => { const Icon = SEC_ICONS[i]; return <article key={title}><Icon /><h3>{title}</h3><p>{text}</p></article>; })}</div>
-          <p style={{ marginTop: 22 }}><Link to="/securite" style={{ fontWeight: 700, color: "#1f8fc9" }}>{fr ? "Tout sur la sécurité" : "Security in detail"} →</Link></p>
-        </div>
-      </section>
-
-      <section className="ts-section alt" id="faq">
-        <div className="ts-wrap ts-reveal">
-          <h2 className="ts-h2">{c.faqTitle}</h2>
-          <div className="ts-faq">{c.faq.map(([q, a]) => <details key={q}><summary>{q}<Plus /></summary><p>{a}</p></details>)}</div>
-        </div>
+      <section className="ts-section" style={{ paddingBottom: 40 }}>
+        <div className="ts-wrap"><div className="ts-cta"><h2>{h.cta.title}</h2><Link to="/demo" className="ts-btn ts-btn-white">{h.cta.button}<ArrowRight size={18} /></Link></div></div>
       </section>
 
       <section className="ts-section">
-        <div className="ts-wrap ts-reveal">
-          <div className="ts-cta ts-grain">
-            <div><h2>{c.ctaTitle}</h2><p>{c.ctaLead}</p></div>
-            <div className="ts-cta-side">
-              <Link className="ts-btn ts-btn-primary" to="/demo">{c.ctaDemo}<ArrowRight size={16} /></Link>
-              <Link className="ts-btn ts-btn-ghost" to="/login">{fr ? "Espace organisateur" : "Organizer sign-in"}</Link>
-            </div>
-          </div>
+        <div className="ts-wrap ts-demo">
+          <div><h2 className="ts-h2">{h.demo.title}</h2><p className="ts-lead">{h.demo.lead}</p><ul className="ts-check" style={{ marginTop: 22 }}>{h.demo.items.map((i) => <li key={i}><CircleCheck size={18} />{i}</li>)}</ul><Link to="/demo" className="ts-btn ts-btn-primary" style={{ marginTop: 26 }}>{h.cta.button}</Link></div>
+          <div className="ts-demo-card"><div className="ts-monitor"><img src={img("sessions")} alt="" loading="lazy" /></div><p style={{ margin: "16px 4px 0", color: "var(--muted)", fontSize: 14 }}>{c.allProducts} · <Link to="/produits" className="ts-link">{c.learnMore}</Link></p></div>
         </div>
       </section>
     </SiteLayout>
