@@ -39,7 +39,7 @@ export function LeadsAdmin({ setError }) {
           <p className="text-xs text-slate-500">{[l.kind, l.size, l.languages].filter(Boolean).join(" · ")}</p>
           {l.message && <p className="text-sm whitespace-pre-wrap">{l.message}</p>}
           <div className="flex flex-wrap items-center gap-2">
-            <a className={btn} href={`mailto:${encodeURIComponent(l.email)}?subject=${encodeURIComponent("Syntonia Live demo")}`}><Mail className="h-3.5 w-3.5" />{l.email}</a>
+            <a className={btn} href={`mailto:${encodeURIComponent(l.email)}?subject=${encodeURIComponent("Syntonia demo")}`}><Mail className="h-3.5 w-3.5" />{l.email}</a>
             <select value={l.status} onChange={(e) => status(l, e.target.value)} className="h-9 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-2 text-xs">
               <option value="new">{t("New")}</option><option value="contacted">{t("Contacted")}</option><option value="done">{t("Done")}</option>
             </select>

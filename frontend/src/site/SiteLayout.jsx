@@ -20,7 +20,7 @@ export const Icon = ({ name, size = 20, ...rest }) => {
 export const img = (key) => IMG[key] || key;
 
 export function Logo() {
-  return <Link to="/" className="ts-logo" aria-label="Syntonia Live"><SyntoniaMark /><span>syntonia<b>live</b></span></Link>;
+  return <Link to="/" className="ts-logo" aria-label="Syntonia"><SyntoniaMark /><span>synton<b>ia</b></span></Link>;
 }
 
 function Dropdown({ label, wide, mega, children, id, open, setOpen }) {
@@ -124,7 +124,7 @@ export function SiteLayout({ children }) {
             <div><h4>{nav.resources}</h4><ul>{resources.map(([to, , label]) => <li key={to}><Link to={to}>{label}</Link></li>)}</ul></div>
             <div><h4>{c.company}</h4><ul><li><Link to="/demo">{nav.contact}</Link></li><li><Link to="/login">{nav.login}</Link></li><li><Link to="/join">{nav.tryIt}</Link></li></ul></div>
           </div>
-          <div className="ts-footer-end"><span>© {new Date().getFullYear()} Syntonia Live. {c.rights}</span><span>{c.made}</span></div>
+          <div className="ts-footer-end"><span>© {new Date().getFullYear()} Syntonia. {c.rights}</span><span>{c.made}</span></div>
         </div>
       </footer>
     </div>

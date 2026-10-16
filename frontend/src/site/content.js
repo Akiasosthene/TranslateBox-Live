@@ -57,12 +57,12 @@ export const PRODUCTS = {
       features: [["Son de la salle séparé", "L'interprète entend l'intervenant sans que ce son parte vers le public."], ["Un interprète à l'antenne par langue", "Pas de conflit entre deux cabines."], ["Aucun coût IA", "Les langues humaines ne consomment pas de minutes de traduction."], ["À distance", "L'interprète n'a pas besoin d'être sur place."]],
       faq: [["Les participants savent-ils qui traduit ?", "Oui, la page d'écoute indique « Interprète humain » ou « Voix générée par IA »."]] }),
     P({ slug: "zoom", cat: "meetings", icon: "Video", name: "Traduction pour Zoom", short: "Traduisez vos réunions et webinaires Zoom, en voix et en sous-titres.", image: "screen",
-      title: "Traduction en direct pour Zoom", lead: "Zoom envoie la réunion à Syntonia Live par diffusion personnalisée. Vos participants écoutent dans leur langue, et les sous-titres traduits reviennent dans Zoom.",
-      steps: [["Autorisez la diffusion", "Dans Zoom : Paramètres, Réunion, diffusion en direct personnalisée."], ["Collez l'adresse et la clé", "Elles sont propres à chaque événement Syntonia Live."], ["Démarrez sur le serveur", "La traduction continue même si la console est fermée."]],
+      title: "Traduction en direct pour Zoom", lead: "Zoom envoie la réunion à Syntonia par diffusion personnalisée. Vos participants écoutent dans leur langue, et les sous-titres traduits reviennent dans Zoom.",
+      steps: [["Autorisez la diffusion", "Dans Zoom : Paramètres, Réunion, diffusion en direct personnalisée."], ["Collez l'adresse et la clé", "Elles sont propres à chaque événement Syntonia."], ["Démarrez sur le serveur", "La traduction continue même si la console est fermée."]],
       features: [["Sans robot", "Aucun participant automatique n'est ajouté à la réunion."], ["Sous-titres dans Zoom", "Par le jeton de sous-titrage de la réunion."], ["Webinaires", "Fonctionne pour les réunions et les webinaires."]],
       faq: [["Faut-il un compte Zoom payant ?", "La diffusion personnalisée et le sous-titrage par jeton dépendent de votre forfait Zoom et des réglages de votre compte."]] }),
     P({ slug: "teams", cat: "meetings", icon: "MonitorPlay", name: "Traduction pour Microsoft Teams", short: "Ajoutez la traduction et les sous-titres à vos réunions Teams.", image: "screen",
-      title: "Traduction en direct pour Microsoft Teams", lead: "L'organisateur ajoute l'application de diffusion personnalisée à la réunion Teams. Syntonia Live traduit pour vos participants et renvoie les sous-titres dans la réunion.",
+      title: "Traduction en direct pour Microsoft Teams", lead: "L'organisateur ajoute l'application de diffusion personnalisée à la réunion Teams. Syntonia traduit pour vos participants et renvoie les sous-titres dans la réunion.",
       steps: [["Activez la stratégie", "Votre service informatique active la diffusion en direct (LiveStreamingMode)."], ["Ajoutez l'app de diffusion", "Collez l'adresse et la clé de l'événement."], ["Démarrez sur le serveur", "Les participants rejoignent avec le QR code ou le code."]],
       features: [["Sous-titres CART", "Les sous-titres traduits s'affichent dans Teams."], ["Assemblées et formations", "Pour les réunions internes à plusieurs langues."], ["Authentification unique", "Vos équipes se connectent avec leur compte Microsoft."]],
       faq: [["Qui peut lancer la diffusion ?", "L'organisateur de la réunion Teams."]] }),
@@ -85,9 +85,9 @@ export const PRODUCTS = {
       title: "Sous-titres pour vos vidéos, dans chaque langue", lead: "Transformez la session en fichiers de sous-titres SRT ou VTT pour YouTube, Vimeo ou votre logiciel de montage, et traduisez-les dans d'autres langues.",
       steps: [["Diffusez la séance", "Avec l'archivage activé."], ["Ajustez le décalage", "Pour coller à votre enregistrement."], ["Téléchargez", "Un fichier par langue."]],
       features: [["SRT et VTT", "Les formats standard."], ["Traduction des transcriptions", "Ajoutez une langue après coup, minutage conservé."], ["Lignes courtes", "Découpées pour rester lisibles à l'écran."]],
-      faq: [["Peut-on sous-titrer une vidéo déjà enregistrée ?", "Diffusez la vidéo comme source audio dans Syntonia Live, puis téléchargez les sous-titres."]] }),
+      faq: [["Peut-on sous-titrer une vidéo déjà enregistrée ?", "Diffusez la vidéo comme source audio dans Syntonia, puis téléchargez les sous-titres."]] }),
     P({ slug: "doublage", cat: "after", icon: "AudioLines", name: "Doublage IA", short: "Une piste de voix traduite, calée sur votre enregistrement.", image: "transcripts",
-      title: "Doublage IA de vos enregistrements", lead: "À partir de la transcription horodatée, Syntonia Live produit une piste audio WAV dans la langue choisie, avec la voix studio de votre choix.",
+      title: "Doublage IA de vos enregistrements", lead: "À partir de la transcription horodatée, Syntonia produit une piste audio WAV dans la langue choisie, avec la voix studio de votre choix.",
       steps: [["Diffusez la séance", "Avec les transcriptions conservées."], ["Choisissez la voix", "Parmi 13 voix studio."], ["Téléchargez la piste", "Un fichier WAV à ajouter à votre vidéo."]],
       features: [["Minutage conservé", "Chaque phrase est placée à son heure."], ["Glossaire appliqué", "Les noms sont prononcés correctement."]],
       faq: [["Le doublage remplace-t-il la voix d'origine ?", "Il produit une piste séparée : vous choisissez au montage comment la mélanger."]] }),
@@ -134,12 +134,12 @@ export const PRODUCTS = {
       features: [["Separate floor audio", "The interpreter hears the speaker without that sound reaching the audience."], ["One interpreter on air per language", "No clash between two booths."], ["No AI cost", "Human languages use no translation minutes."], ["Remote", "The interpreter does not need to be on site."]],
       faq: [["Do attendees know who is translating?", "Yes, the listener page shows \"Human interpreter\" or \"AI-generated voice\"."]] }),
     P({ slug: "zoom", cat: "meetings", icon: "Video", name: "Zoom translation", short: "Translate Zoom meetings and webinars, in voice and captions.", image: "screen",
-      title: "Live translation for Zoom", lead: "Zoom sends the meeting to Syntonia Live through custom live streaming. Your attendees listen in their language, and translated captions come back into Zoom.",
-      steps: [["Allow streaming", "In Zoom: Settings, Meeting, custom live streaming."], ["Paste the URL and key", "They are unique to each Syntonia Live event."], ["Start on the server", "Translation keeps running even with the console closed."]],
+      title: "Live translation for Zoom", lead: "Zoom sends the meeting to Syntonia through custom live streaming. Your attendees listen in their language, and translated captions come back into Zoom.",
+      steps: [["Allow streaming", "In Zoom: Settings, Meeting, custom live streaming."], ["Paste the URL and key", "They are unique to each Syntonia event."], ["Start on the server", "Translation keeps running even with the console closed."]],
       features: [["No bot", "No automated participant is added to the meeting."], ["Captions in Zoom", "Through the meeting's caption token."], ["Webinars", "Works for meetings and webinars."]],
       faq: [["Do I need a paid Zoom plan?", "Custom streaming and token captions depend on your Zoom plan and account settings."]] }),
     P({ slug: "teams", cat: "meetings", icon: "MonitorPlay", name: "Microsoft Teams translation", short: "Add translation and captions to your Teams meetings.", image: "screen",
-      title: "Live translation for Microsoft Teams", lead: "The organizer adds the custom streaming app to the Teams meeting. Syntonia Live translates for your attendees and sends captions back into the meeting.",
+      title: "Live translation for Microsoft Teams", lead: "The organizer adds the custom streaming app to the Teams meeting. Syntonia translates for your attendees and sends captions back into the meeting.",
       steps: [["Enable the policy", "Your IT team turns on live streaming (LiveStreamingMode)."], ["Add the streaming app", "Paste the event's URL and key."], ["Start on the server", "Attendees join with the QR code or the session code."]],
       features: [["CART captions", "Translated captions appear in Teams."], ["Town halls and trainings", "For internal meetings across languages."], ["Single sign-on", "Your teams sign in with their Microsoft account."]],
       faq: [["Who can start streaming?", "The Teams meeting organizer."]] }),
@@ -162,9 +162,9 @@ export const PRODUCTS = {
       title: "Subtitles for your videos, in every language", lead: "Turn the session into SRT or VTT subtitle files for YouTube, Vimeo or your editing software, and translate them into other languages.",
       steps: [["Broadcast the session", "With archiving on."], ["Adjust the offset", "To match your recording."], ["Download", "One file per language."]],
       features: [["SRT and VTT", "The standard formats."], ["Transcript translation", "Add a language afterwards, timing kept."], ["Short lines", "Split to stay readable on screen."]],
-      faq: [["Can I subtitle a video I already recorded?", "Play the video as the audio source in Syntonia Live, then download the subtitles."]] }),
+      faq: [["Can I subtitle a video I already recorded?", "Play the video as the audio source in Syntonia, then download the subtitles."]] }),
     P({ slug: "doublage", cat: "after", icon: "AudioLines", name: "AI dubbing", short: "A translated voice track aligned to your recording.", image: "transcripts",
-      title: "AI dubbing for your recordings", lead: "From the timed transcript, Syntonia Live produces a WAV voice track in the chosen language, with the studio voice of your choice.",
+      title: "AI dubbing for your recordings", lead: "From the timed transcript, Syntonia produces a WAV voice track in the chosen language, with the studio voice of your choice.",
       steps: [["Broadcast the session", "With transcripts kept."], ["Pick the voice", "From 13 studio voices."], ["Download the track", "A WAV file to add to your video."]],
       features: [["Timing kept", "Every sentence lands at its time."], ["Glossary applied", "Names are pronounced properly."]],
       faq: [["Does dubbing replace the original voice?", "It produces a separate track: you decide in editing how to mix it."]] }),
@@ -206,7 +206,7 @@ export const USECASES = {
 };
 
 export const FEATURES = {
-  fr: { title: "Toutes les fonctionnalités", lead: "La liste complète de ce que fait Syntonia Live, de la préparation au rapport d'activité.", groups: [
+  fr: { title: "Toutes les fonctionnalités", lead: "La liste complète de ce que fait Syntonia, de la préparation au rapport d'activité.", groups: [
     ["Mic", "Audio et langues", ["Micro de l'ordinateur, console de mixage ou mode salle (sans filtrage du bruit)", "Entrée RTMP, RTMPS et SRT depuis Zoom, Teams, Webex, OBS et vMix", "Détection automatique de la langue source parmi plus de 70", "13 langues en interprétation directe et 42 langues texte + voix", "Jusqu'à 5 langues par session", "13 voix studio et 5 styles de voix", "Traduction sur le serveur, console fermée", "Appuyer pour parler avec une touche au choix"]],
     ["Captions", "Sous-titres et affichage", ["Sous-titres en direct sur la page d'écoute", "Trois tailles, contraste élevé, phrases complètes", "Noms des intervenants à chaque changement", "Affichage en salle jusqu'à quatre langues", "Incrustation transparente pour OBS et vMix", "Sous-titres vers Zoom, Teams et webhook"]],
     ["Smartphone", "Participants", ["Rejoindre par QR code, lien ou code de session", "Aucun compte et aucune application", "Changement de langue pendant l'écoute", "Test du casque intégré", "Écran maintenu allumé pendant l'écoute", "PIN optionnel par événement", "Applications Android et iOS"]],
@@ -214,7 +214,7 @@ export const FEATURES = {
     ["FileText", "Après l'événement", ["Transcriptions TXT, TXT horodaté, SRT et VTT", "Décalage des horodatages", "Traduction d'une transcription dans une autre langue", "Résumés IA publiés aux participants", "Piste de doublage WAV", "Archivage serveur au choix"]],
     ["ShieldCheck", "Équipe et sécurité", ["Rôles propriétaire, administrateur et présentateur", "Double authentification par application", "Authentification unique OIDC", "Soldes et transferts de minutes", "Plafond mensuel d'usage", "Rapport d'activité CSV", "Clés API par utilisateur", "Auto-hébergé, aucun enregistrement audio"]],
   ] },
-  en: { title: "All features", lead: "The full list of what Syntonia Live does, from preparation to the activity report.", groups: [
+  en: { title: "All features", lead: "The full list of what Syntonia does, from preparation to the activity report.", groups: [
     ["Mic", "Audio and languages", ["Computer microphone, mixing desk or room mode (no noise filtering)", "RTMP, RTMPS and SRT input from Zoom, Teams, Webex, OBS and vMix", "Automatic source language detection among more than 70", "13 languages with direct interpretation and 42 text-and-voice languages", "Up to 5 languages per session", "13 studio voices and 5 voice styles", "Server-side translation with the console closed", "Push-to-talk with the key of your choice"]],
     ["Captions", "Captions and display", ["Live captions on the listener page", "Three sizes, high contrast, complete sentences", "Speaker names at each change", "Room display with up to four languages", "Transparent overlay for OBS and vMix", "Captions to Zoom, Teams and webhook"]],
     ["Smartphone", "Attendees", ["Join by QR code, link or session code", "No account and no app", "Switch language while listening", "Built-in headphone test", "Screen kept awake while listening", "Optional PIN per event", "Android and iOS apps"]],
@@ -227,15 +227,15 @@ export const FEATURES = {
 export const HOME = {
   fr: {
     hero: {
-      tagline: "Avec Syntonia Live, personne ne perd un mot.",
+      tagline: "Avec Syntonia, personne ne perd un mot.",
       title: "Traduction, sous‑titres, transcriptions et résumés par IA",
-      lead: "Syntonia Live traduit vos réunions, conférences, webinaires et formations en direct, en salle comme en ligne. Les participants rejoignent avec un QR code et écoutent dans leur langue, sans application.",
+      lead: "Syntonia traduit vos réunions, conférences, webinaires et formations en direct, en salle comme en ligne. Les participants rejoignent avec un QR code et écoutent dans leur langue, sans application.",
       cta: "Demander une démo", cta2: "Comment ça marche",
       slogans: [["Globe", "Partout", "En salle, en ligne, hybride"], ["Users", "Pour tous", "55 langues d'écoute"], ["MessageSquareText", "Chaque mot", "Voix et texte en direct"]],
     },
     icons: [["Headphones", "Traduction", "traduction"], ["Captions", "Sous-titres", "sous-titres"], ["FileText", "Transcriptions", "transcriptions"], ["Sparkles", "Résumés", "resumes"]],
     stats: [["55", "langues pour vos participants"], ["≈ 1 s", "de délai en interprétation directe"], ["15", "produits dans une seule solution"], ["0", "application à installer"]],
-    life: { title: "Syntonia Live fait bien plus que traduire en direct", lead: "Du moment où vous planifiez la séance jusqu'au résumé envoyé le lendemain.", cols: [
+    life: { title: "Syntonia fait bien plus que traduire en direct", lead: "Du moment où vous planifiez la séance jusqu'au résumé envoyé le lendemain.", cols: [
       { tag: "Avant l'événement", image: "sessions", items: ["Planifiez les sessions, les langues et les étiquettes, ou importez-les depuis un fichier CSV.", "Préparez un glossaire de noms, de sigles et de termes métier, par langue.", "Ajoutez votre logo, vos partenaires et les noms des intervenants."] },
       { tag: "Pendant l'événement", image: "captions", items: ["Traduction vocale et sous-titres sur chaque téléphone, environ une seconde après l'intervenant.", "Affichage en salle, incrustation vidéo, Zoom, Teams, Webex et OBS.", "Interprètes humains en cabine web pour les langues de votre choix."] },
       { tag: "Après l'événement", image: "transcripts", items: ["Transcriptions horodatées en TXT, SRT et VTT, dans toutes les langues.", "Résumé IA publié sur la page des participants.", "Piste de doublage pour vos enregistrements."] },
@@ -252,7 +252,7 @@ export const HOME = {
     ] },
     usecases: { title: "Pour tous les formats d'événement", lead: "Une réunion d'équipe de dix personnes ou une conférence de plusieurs salles : la même plateforme s'adapte." },
     features: { title: "Fonctionnalités et avantages", items: [
-      ["Combien coûte Syntonia Live ?", "Syntonia Live tourne sur votre serveur et utilise votre propre compte OpenAI. Vous payez l'usage réel, en minutes par langue, sans frais par participant. Les administrateurs fixent un plafond mensuel et des minutes par présentateur.", "Comment ça marche", "/comment-ca-marche"],
+      ["Combien coûte Syntonia ?", "Syntonia tourne sur votre serveur et utilise votre propre compte OpenAI. Vous payez l'usage réel, en minutes par langue, sans frais par participant. Les administrateurs fixent un plafond mensuel et des minutes par présentateur.", "Comment ça marche", "/comment-ca-marche"],
       ["Quels types d'événements ?", "Réunions, conférences, webinaires, formations et séances publiques, en salle, en ligne ou hybrides. Une session peut tourner entièrement sur le serveur à partir d'un flux.", "Voir les cas d'usage", "/cas-usage"],
       ["Comment les participants y accèdent-ils ?", "Ils scannent le QR code, ouvrent le lien ou tapent le code de session. La page d'écoute fonctionne sur tout téléphone ou ordinateur récent, sans compte.", "Rejoindre une session", "/join"],
       ["Combien de langues ?", "55 langues d'écoute : 13 en interprétation directe et 42 traduites phrase par phrase puis lues par une voix studio. La langue de l'intervenant est détectée automatiquement parmi plus de 70.", "Voir la traduction en direct", "/produits/traduction"],
@@ -260,20 +260,20 @@ export const HOME = {
       ["Quelles intégrations ?", "Zoom, Teams, Webex, OBS et vMix en entrée, sous-titres renvoyés vers Zoom et Teams, intégration web, webhook et API REST.", "Voir les intégrations", "/produits/api"],
       ["Sécurité et confidentialité", "Le logiciel tourne chez vous. Le son n'est jamais enregistré par l'application, les transcriptions ne sont conservées que si vous le décidez, et la clé OpenAI ne quitte pas le serveur.", "Voir la sécurité", "/securite"],
     ] },
-    cta: { title: "Envie d'en savoir plus sur Syntonia Live ?", button: "Demander une démo" },
-    demo: { title: "Obtenez une démo personnalisée", lead: "Un appel vidéo de 30 minutes pour voir Syntonia Live avec vos langues et votre source audio.", items: ["Mise en place en direct de votre première session", "Réunion Zoom, Teams ou Webex comme source", "Glossaire préparé avec votre vocabulaire", "Transcriptions et résumés de la session", "Affichage en salle et options de sous-titres", "Comptes, rôles et minutes pour votre équipe"] },
+    cta: { title: "Envie d'en savoir plus sur Syntonia ?", button: "Demander une démo" },
+    demo: { title: "Obtenez une démo personnalisée", lead: "Un appel vidéo de 30 minutes pour voir Syntonia avec vos langues et votre source audio.", items: ["Mise en place en direct de votre première session", "Réunion Zoom, Teams ou Webex comme source", "Glossaire préparé avec votre vocabulaire", "Transcriptions et résumés de la session", "Affichage en salle et options de sous-titres", "Comptes, rôles et minutes pour votre équipe"] },
   },
   en: {
     hero: {
-      tagline: "With Syntonia Live, nobody misses a word.",
+      tagline: "With Syntonia, nobody misses a word.",
       title: "AI translation, captions, transcripts and summaries",
-      lead: "Syntonia Live translates your meetings, conferences, webinars and trainings live, in the room and online. Attendees join with a QR code and listen in their own language, with no app to install.",
+      lead: "Syntonia translates your meetings, conferences, webinars and trainings live, in the room and online. Attendees join with a QR code and listen in their own language, with no app to install.",
       cta: "Get a demo", cta2: "How it works",
       slogans: [["Globe", "Everywhere", "In person, online, hybrid"], ["Users", "Everyone", "55 listener languages"], ["MessageSquareText", "Every word", "Live voice and text"]],
     },
     icons: [["Headphones", "Translation", "traduction"], ["Captions", "Captions", "sous-titres"], ["FileText", "Transcripts", "transcriptions"], ["Sparkles", "Summaries", "resumes"]],
     stats: [["55", "languages for your attendees"], ["≈ 1 s", "delay with direct interpretation"], ["15", "products in one solution"], ["0", "apps to install"]],
-    life: { title: "Syntonia Live does much more than live translation", lead: "From the moment you schedule the session to the summary you send the next day.", cols: [
+    life: { title: "Syntonia does much more than live translation", lead: "From the moment you schedule the session to the summary you send the next day.", cols: [
       { tag: "Before the event", image: "sessions", items: ["Schedule sessions, languages and labels, or import them from a CSV file.", "Prepare a glossary of names, acronyms and industry terms, per language.", "Add your logo, your partners and the speakers' names."] },
       { tag: "During the event", image: "captions", items: ["Voice translation and captions on every phone, about a second behind the speaker.", "Room display, video overlay, Zoom, Teams, Webex and OBS.", "Human interpreters in web booths for the languages you choose."] },
       { tag: "After the event", image: "transcripts", items: ["Timed transcripts as TXT, SRT and VTT, in every language.", "AI summary published on the attendee page.", "A dubbing track for your recordings."] },
@@ -290,7 +290,7 @@ export const HOME = {
     ] },
     usecases: { title: "For every event format", lead: "A ten-person team meeting or a multi-room conference: the same platform adapts." },
     features: { title: "Features and benefits", items: [
-      ["How much does Syntonia Live cost?", "Syntonia Live runs on your server and uses your own OpenAI account. You pay actual usage, in minutes per language, with no per-attendee fee. Administrators set a monthly cap and minutes per presenter.", "How it works", "/comment-ca-marche"],
+      ["How much does Syntonia cost?", "Syntonia runs on your server and uses your own OpenAI account. You pay actual usage, in minutes per language, with no per-attendee fee. Administrators set a monthly cap and minutes per presenter.", "How it works", "/comment-ca-marche"],
       ["What kinds of events?", "Meetings, conferences, webinars, trainings and public sessions, in person, online or hybrid. A session can run entirely on the server from a stream.", "See use cases", "/cas-usage"],
       ["How do attendees get in?", "They scan the QR code, open the link or type the session code. The listener page works on any recent phone or computer, with no account.", "Join a session", "/join"],
       ["How many languages?", "55 listener languages: 13 with direct interpretation and 42 translated sentence by sentence and read by a studio voice. The speaker's language is detected automatically among more than 70.", "See live translation", "/produits/traduction"],
@@ -298,29 +298,29 @@ export const HOME = {
       ["Which integrations?", "Zoom, Teams, Webex, OBS and vMix as input, captions sent back to Zoom and Teams, website embed, webhook and REST API.", "See integrations", "/produits/api"],
       ["Security and privacy", "The software runs on your side. Audio is never recorded by the app, transcripts are kept only if you decide, and the OpenAI key never leaves the server.", "See security", "/securite"],
     ] },
-    cta: { title: "Want to learn more about Syntonia Live?", button: "Get a demo" },
-    demo: { title: "Get a personalized demo", lead: "A 30-minute video call to see Syntonia Live with your languages and your audio source.", items: ["Your first session set up live", "A Zoom, Teams or Webex meeting as the source", "A glossary prepared with your vocabulary", "Session transcripts and summaries", "Room display and caption options", "Accounts, roles and minutes for your team"] },
+    cta: { title: "Want to learn more about Syntonia?", button: "Get a demo" },
+    demo: { title: "Get a personalized demo", lead: "A 30-minute video call to see Syntonia with your languages and your audio source.", items: ["Your first session set up live", "A Zoom, Teams or Webex meeting as the source", "A glossary prepared with your vocabulary", "Session transcripts and summaries", "Room display and caption options", "Accounts, roles and minutes for your team"] },
   },
 };
 
 export const HOW = {
-  fr: { title: "Comment fonctionne Syntonia Live", lead: "Un intervenant parle. Syntonia Live écoute, traduit et diffuse vers chaque participant, dans sa langue, en voix et en texte.", steps: [
+  fr: { title: "Comment fonctionne Syntonia", lead: "Un intervenant parle. Syntonia écoute, traduit et diffuse vers chaque participant, dans sa langue, en voix et en texte.", steps: [
     ["Mic", "1. Le son arrive", "Depuis le micro de l'ordinateur, une console de mixage ou un flux RTMP/SRT envoyé par Zoom, Teams, Webex ou OBS."],
     ["Languages", "2. L'IA interprète", "Une session d'interprétation par langue. Pour les 42 langues texte + voix, chaque phrase est traduite puis lue par une voix studio."],
     ["Radio", "3. Le serveur diffuse", "Votre serveur envoie la voix et les sous-titres à chaque téléphone, à l'affichage en salle et aux réunions."],
     ["Smartphone", "4. Les participants écoutent", "Ils scannent le QR code, choisissent leur langue et écoutent au casque."],
-  ], cost: { title: "Ce que vous payez", text: "Syntonia Live tourne sur votre serveur (un VPS suffit) avec votre clé OpenAI. La facture OpenAI dépend des minutes diffusées et du nombre de langues ; chaque langue ouvre sa propre session. Les langues confiées à des interprètes humains ne coûtent rien en IA. Le portail affiche les minutes utilisées par session, par langue et par présentateur, et un plafond mensuel bloque toute session au-delà." } },
-  en: { title: "How Syntonia Live works", lead: "A speaker talks. Syntonia Live listens, translates and delivers to every attendee, in their language, as voice and text.", steps: [
+  ], cost: { title: "Ce que vous payez", text: "Syntonia tourne sur votre serveur (un VPS suffit) avec votre clé OpenAI. La facture OpenAI dépend des minutes diffusées et du nombre de langues ; chaque langue ouvre sa propre session. Les langues confiées à des interprètes humains ne coûtent rien en IA. Le portail affiche les minutes utilisées par session, par langue et par présentateur, et un plafond mensuel bloque toute session au-delà." } },
+  en: { title: "How Syntonia works", lead: "A speaker talks. Syntonia listens, translates and delivers to every attendee, in their language, as voice and text.", steps: [
     ["Mic", "1. Audio comes in", "From the computer microphone, a mixing desk, or an RTMP/SRT stream sent by Zoom, Teams, Webex or OBS."],
     ["Languages", "2. The AI interprets", "One interpretation session per language. For the 42 text-and-voice languages, each sentence is translated, then read by a studio voice."],
     ["Radio", "3. Your server delivers", "Your server sends voice and captions to every phone, the room display and meetings."],
     ["Smartphone", "4. Attendees listen", "They scan the QR code, pick their language and listen with headphones."],
-  ], cost: { title: "What you pay", text: "Syntonia Live runs on your server (a VPS is enough) with your OpenAI key. The OpenAI bill depends on minutes broadcast and the number of languages; each language opens its own session. Languages handled by human interpreters cost nothing in AI. The portal shows minutes used per session, language and presenter, and a monthly cap blocks any session beyond it." } },
+  ], cost: { title: "What you pay", text: "Syntonia runs on your server (a VPS is enough) with your OpenAI key. The OpenAI bill depends on minutes broadcast and the number of languages; each language opens its own session. Languages handled by human interpreters cost nothing in AI. The portal shows minutes used per session, language and presenter, and a monthly cap blocks any session beyond it." } },
 };
 
 export const SECURITY_PAGE = {
   fr: {
-    title: "Sécurité et confidentialité", lead: "Syntonia Live est un logiciel que vous exploitez vous-même. Voici exactement ce qu'il advient de votre son, de vos textes et de vos comptes.",
+    title: "Sécurité et confidentialité", lead: "Syntonia est un logiciel que vous exploitez vous-même. Voici exactement ce qu'il advient de votre son, de vos textes et de vos comptes.",
     blocks: [
       ["Où il tourne", "Sur votre serveur, dans des conteneurs Docker que vous contrôlez. Vous décidez quand installer une mise à jour."],
       ["Le son", "Le son est envoyé au fournisseur d'IA pour la traduction en direct. L'application ne l'écrit jamais sur disque. Les téléphones ne reçoivent le son que pendant l'écoute."],
@@ -329,11 +329,11 @@ export const SECURITY_PAGE = {
       ["Les comptes", "Rôles propriétaire, administrateur et présentateur. Un présentateur ne voit que ses sessions. Mots de passe hachés (scrypt), double authentification, authentification unique en option."],
       ["Les participants", "Ni compte ni application. Un code PIN optionnel par événement. La page d'écoute ne s'intègre que sur les sites que vous autorisez."],
       ["Les flux et les clés", "Chaque événement a sa clé de flux secrète, que vous pouvez renouveler. Les clés API sont stockées hachées et ne peuvent pas créer d'autres clés."],
-      ["Ce que nous ne prétendons pas", "Syntonia Live ne détient pas à lui seul de certification comme SOC 2 ou ISO 27001. Elles dépendent de votre hébergeur et de vos propres politiques."],
+      ["Ce que nous ne prétendons pas", "Syntonia ne détient pas à lui seul de certification comme SOC 2 ou ISO 27001. Elles dépendent de votre hébergeur et de vos propres politiques."],
     ],
   },
   en: {
-    title: "Security and privacy", lead: "Syntonia Live is software you run yourself. Here is exactly what happens to your audio, your text and your accounts.",
+    title: "Security and privacy", lead: "Syntonia is software you run yourself. Here is exactly what happens to your audio, your text and your accounts.",
     blocks: [
       ["Where it runs", "On your server, in Docker containers you control. You decide when to install an update."],
       ["Audio", "Audio is sent to the AI provider for live translation. The app never writes it to disk. Phones only receive audio while listening."],
@@ -342,7 +342,7 @@ export const SECURITY_PAGE = {
       ["Accounts", "Owner, administrator and presenter roles. Presenters only see their own sessions. Passwords hashed with scrypt, two-factor sign-in, optional single sign-on."],
       ["Attendees", "No account and no app. An optional PIN per event. The listener page can only be embedded on sites you allow."],
       ["Streams and keys", "Each event has its own secret stream key, which you can rotate. API keys are stored hashed and cannot create other keys."],
-      ["What we do not claim", "Syntonia Live does not hold a certification such as SOC 2 or ISO 27001 by itself. Those depend on your hosting provider and your own policies."],
+      ["What we do not claim", "Syntonia does not hold a certification such as SOC 2 or ISO 27001 by itself. Those depend on your hosting provider and your own policies."],
     ],
   },
 };
@@ -353,6 +353,6 @@ export const DEMO = {
 };
 
 export const COMMON = {
-  fr: { learnMore: "En savoir plus", how: "Comment ça marche", features: "Fonctionnalités", faq: "Questions fréquentes", related: "Produits associés", needs: "Ce dont vous avez besoin, et comment Syntonia Live y répond", included: "Produits recommandés", footerTag: "Traduction, sous-titres et transcriptions en direct pour les réunions et les événements.", rights: "Tous droits réservés.", company: "Entreprise", made: "Conçu au Nouveau-Brunswick, Canada", allFeatures: "Voir toutes les fonctionnalités" },
-  en: { learnMore: "Learn more", how: "How it works", features: "Features", faq: "Frequently asked questions", related: "Related products", needs: "What you need, and how Syntonia Live answers it", included: "Recommended products", footerTag: "Live translation, captions and transcripts for meetings and events.", rights: "All rights reserved.", company: "Company", made: "Made in New Brunswick, Canada", allFeatures: "See all features" },
+  fr: { learnMore: "En savoir plus", how: "Comment ça marche", features: "Fonctionnalités", faq: "Questions fréquentes", related: "Produits associés", needs: "Ce dont vous avez besoin, et comment Syntonia y répond", included: "Produits recommandés", footerTag: "Traduction, sous-titres et transcriptions en direct pour les réunions et les événements.", rights: "Tous droits réservés.", company: "Entreprise", made: "Conçu au Nouveau-Brunswick, Canada", allFeatures: "Voir toutes les fonctionnalités" },
+  en: { learnMore: "Learn more", how: "How it works", features: "Features", faq: "Frequently asked questions", related: "Related products", needs: "What you need, and how Syntonia answers it", included: "Recommended products", footerTag: "Live translation, captions and transcripts for meetings and events.", rights: "All rights reserved.", company: "Company", made: "Made in New Brunswick, Canada", allFeatures: "See all features" },
 };

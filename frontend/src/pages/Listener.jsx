@@ -141,7 +141,7 @@ export default function Listener() {
           setConn("connected"); setLive(!!m.live); setErr("");
           if (m.meta) setMeta(m.meta);
           if (m.live && m.format && m.format !== "pcm16") {
-            setErr("This event uses an older broadcast format. Ask the organizer to update Syntonia Live.");
+            setErr("This event uses an older broadcast format. Ask the organizer to update Syntonia.");
           }
           if (!m.live) playerRef.current?.clear();
         }
@@ -200,7 +200,7 @@ export default function Listener() {
     keepAwake();
     if ("mediaSession" in navigator && globalThis.MediaMetadata) {
       try {
-        navigator.mediaSession.metadata = new MediaMetadata({ title: info?.name || "Live Interpretation", artist: info?.organization || "Syntonia Live", album: getTarget(info?.target || "en").native });
+        navigator.mediaSession.metadata = new MediaMetadata({ title: info?.name || "Live Interpretation", artist: info?.organization || "Syntonia", album: getTarget(info?.target || "en").native });
         navigator.mediaSession.setActionHandler("pause", () => togglePlay(true));
         navigator.mediaSession.setActionHandler("play", () => togglePlay(false));
       } catch { /* Optional API */ }
@@ -259,7 +259,7 @@ export default function Listener() {
       <div className={`w-full max-w-md ${embed ? "pt-6" : "pt-16"} pb-10`}>
         <header className="text-center">
           {info?.logo && <img src={info.logo} alt={info.organization || ""} data-testid="listener-logo" className="mx-auto mb-4 max-h-16 max-w-[200px] object-contain" />}
-          <p className="text-[11px] font-mono uppercase tracking-[0.35em] text-emerald-400/90">Syntonia Live · {t("Live")}</p>
+          <p className="text-[11px] font-mono uppercase tracking-[0.35em] text-emerald-400/90">Syntonia · {t("Live")}</p>
           <h1 className="mt-4 text-[28px] leading-tight font-extrabold text-slate-50 text-balance">{info?.name || t("Live Interpretation")}</h1>
           {info?.organization && <p className="text-slate-400 mt-1">{info.organization}</p>}
           {info?.start_at && !info.live && new Date(info.start_at) > new Date() && <p className="text-sm text-emerald-300 mt-2" data-testid="listener-start">{t("Starts")} {new Date(info.start_at).toLocaleString()}</p>}

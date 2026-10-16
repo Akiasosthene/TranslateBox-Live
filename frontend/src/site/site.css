@@ -291,5 +291,5 @@
 @media (max-width: 640px) { .ts-fgroups { grid-template-columns: 1fr; } }
 /* Syntonia wordmark */
 .ts-logo svg { width: 34px; height: 34px; }
-.ts-logo b { font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; margin-left: 5px; color: var(--blue); align-self: flex-start; margin-top: 3px; }
+.ts-logo b { color: var(--blue); }
 .ts-footer .ts-logo b { color: #7DD3FC; }

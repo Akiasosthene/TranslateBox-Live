@@ -33,7 +33,7 @@ export const SettingsDialog = () => {
   const buildText = () => {
     const tgt = getTarget(targetLang);
     return [
-      "Syntonia Live — Transcript",
+      "Syntonia — Transcript",
       `Event: ${profile.eventName || "—"}`,
       `Organization: ${profile.organization || "—"}`,
       `Date/time: ${new Date().toLocaleString()}`,
@@ -59,7 +59,7 @@ export const SettingsDialog = () => {
   const exportPdf = () => {
     const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
     const tgt = getTarget(targetLang);
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Syntonia Live Transcript</title><style>body{font-family:-apple-system,Segoe UI,sans-serif;padding:32px;color:#0f172a;line-height:1.6}h1{font-size:20px}h2{font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:#0891b2;margin-top:22px}.m{font-size:12px;color:#475569}pre{white-space:pre-wrap;font:inherit;font-size:14px}</style></head><body><h1>Syntonia Live — Transcript</h1><div class="m">Event: ${esc(profile.eventName || "—")}<br/>Organization: ${esc(profile.organization || "—")}<br/>${esc(new Date().toLocaleString())}<br/>Target: ${esc(tgt.name)}</div><h2>${esc(t("Source"))}</h2><pre>${esc(sourceText || "(empty)")}</pre><h2>Translation — ${esc(tgt.name)}</h2><pre>${esc(targetText || "(empty)")}</pre></body></html>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Syntonia Transcript</title><style>body{font-family:-apple-system,Segoe UI,sans-serif;padding:32px;color:#0f172a;line-height:1.6}h1{font-size:20px}h2{font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:#0891b2;margin-top:22px}.m{font-size:12px;color:#475569}pre{white-space:pre-wrap;font:inherit;font-size:14px}</style></head><body><h1>Syntonia — Transcript</h1><div class="m">Event: ${esc(profile.eventName || "—")}<br/>Organization: ${esc(profile.organization || "—")}<br/>${esc(new Date().toLocaleString())}<br/>Target: ${esc(tgt.name)}</div><h2>${esc(t("Source"))}</h2><pre>${esc(sourceText || "(empty)")}</pre><h2>Translation — ${esc(tgt.name)}</h2><pre>${esc(targetText || "(empty)")}</pre></body></html>`;
     const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
     const w = window.open(url, "_blank");
     if (!w) {
