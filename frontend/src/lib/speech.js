@@ -199,6 +199,18 @@ export class SpeechPipeline {
   }
 }
 
+// Whole sentence as 24 kHz PCM16 (used for dubbing).
+export async function synthesize(apiBase, { text, voice, style }, signal) {
+  const res = await ttsRequest(apiBase, { text, voice, style }, signal);
+  const parts = [];
+  await streamPcm(res, (buf) => parts.push(new Int16Array(buf)), signal);
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Int16Array(total);
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
 // One-off voice sample for the operator only (never broadcast).
 let previewCtx = null;
 export async function previewVoice(apiBase, { voice, style, lang }) {

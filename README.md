@@ -66,6 +66,20 @@ docker compose up -d --build
 - **Résumé IA** : `/api/summary` envoie la transcription au modèle `OPENAI_SUMMARY_MODEL` (Responses API, `store: false`) et renvoie un résumé en Markdown. Rien n’est conservé sur le serveur.
 - **Glossaire** : `erreur => correction` remplace ; `mot =>` (rien à droite) masque le mot.
 
+## Intégrations, interprètes humains et administration
+
+- **Appuyer pour parler** : case « Appuyer pour parler » dans la console. Le micro reste coupé ; maintenir le gros bouton ou la barre d’espace pour parler. S’applique à toutes les langues et à la cabine.
+- **Zoom et Teams (sous-titres)** : carte « Intégrations ». Coller le jeton API de sous-titrage Zoom ou le lien CART de Teams, choisir la langue. Chaque phrase terminée part comme une ligne de sous-titre via `/api/caption-relay` (seuls `*.zoom.us` et `api.captions.office.microsoft.com` sont acceptés). Les liens restent dans l’onglet.
+- **Incrustation vidéo (OBS, vMix)** : `/e/<id>/screen?overlay=1&lang=fr`, fond transparent, à ajouter comme source navigateur. `?theme=light` pour un écran de salle clair.
+- **Intégration web / Cvent** : `/e/<id>?embed=1` dans une iframe. Les sites autorisés vont dans `EMBED_ORIGINS` (Caddy envoie `frame-ancestors` pour `/e/*` seulement ; le reste refuse toujours l’intégration).
+- **Interprètes humains** : à la création, marquer une langue ajoutée « Interprète humain ». L’événement reçoit un code de cabine. L’interprète ouvre `/e/<id>/booth`, entend la salle (canal `src`, jamais envoyé au public) et passe à l’antenne ; sa voix est diffusée aux auditeurs de cette langue avec la mention « Interprète humain ». Un seul interprète à l’antenne par langue. Pas de session OpenAI pour ces langues.
+- **Consommation et plafonds** : le temps de diffusion IA est compté par événement et par langue (`/api/usage`, affiché dans la console). `USAGE_CAP_MINUTES` bloque l’ouverture de nouvelles sessions au-delà du plafond mensuel. Arrêt automatique réglable dans les Paramètres. Ce compteur estime l’usage à partir du temps de diffusion ; une traduction lancée sans diffusion n’est pas comptée.
+- **Glossaires partagés** : enregistrés côté serveur (`/api/library`), visibles par tous les opérateurs.
+- **Image de marque** : logo (PNG, JPEG ou WebP, redimensionné dans le navigateur) et ligne de commanditaire, affichés sur la page d’écoute et l’écran de salle.
+- **Résumés publiés** : choisir la langue du résumé, puis « Publier pour les auditeurs » ; le résumé apparaît sur la page de l’événement jusqu’à son retrait ou l’expiration de l’événement.
+- **Voix doublée** : pour chaque langue traduite, un fichier WAV avec la voix studio, calé sur le minutage de la session, pour doubler une vidéo enregistrée.
+- **Connexion SSO (Google, Microsoft…)** : renseigner `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOWED` (courriels ou `@domaine`) et `PUBLIC_ORIGIN`, puis déclarer `https://<domaine>/api/auth/sso/callback` comme URI de redirection chez le fournisseur. Le code opérateur reste valable. Les sessions SSO durent `SSO_SESSION_HOURS` (12 h) et sont perdues au redémarrage du backend.
+
 ## Sécurité et confidentialité
 
 Les routes de création de session, d’événement et de statistiques exigent `Authorization: Bearer <OPERATOR_TOKEN>`. Le code opérateur reste en mémoire dans l’onglet et n’est pas intégré au build. Chaque événement possède un jeton de publication distinct, envoyé dans le premier message WebSocket, jamais dans le QR code ou l’URL. Le PIN est également envoyé dans le premier message.

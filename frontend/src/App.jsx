@@ -12,6 +12,7 @@ const Console = lazy(() => import("@/pages/Console"));
 const Debug = lazy(() => import("@/pages/Debug"));
 const LoadTest = lazy(() => import("@/pages/LoadTest"));
 const Screen = lazy(() => import("@/pages/Screen"));
+const Booth = lazy(() => import("@/pages/Booth"));
 const Loading = () => <div className="min-h-screen bg-[#0A0D14]" aria-busy="true" />;
 
 function App() {
@@ -22,6 +23,7 @@ function App() {
           <Routes>
             <Route path="/e/:id" element={<Listener />} />
             <Route path="/e/:id/screen" element={<Screen />} />
+            <Route path="/e/:id/booth" element={<Booth />} />
             <Route element={<OperatorShell />}>
               <Route path="/" element={<Console />} />
               <Route path="/debug" element={<Debug />} />

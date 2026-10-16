@@ -4,11 +4,16 @@
     encode @compressible zstd gzip
     header {
         X-Content-Type-Options nosniff
-        X-Frame-Options DENY
         Referrer-Policy no-referrer
         Permissions-Policy "microphone=(self), camera=()"
         -Server
     }
+    # Listener pages (/e/...) may be embedded by the sites in EMBED_ORIGINS
+    # (Cvent, your website); every other page refuses framing.
+    @embeddable path /e/*
+    header @embeddable Content-Security-Policy "frame-ancestors 'self' {$EMBED_ORIGINS:}"
+    @notembeddable not path /e/*
+    header @notembeddable X-Frame-Options DENY
     handle /api/* {
         reverse_proxy backend:8001 {
             # Stream audio chunks to the operator as soon as they arrive.

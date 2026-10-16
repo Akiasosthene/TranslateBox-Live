@@ -7,10 +7,12 @@ import { SegmentRecorder } from "./transcript";
 // translation session (same microphone), its own studio voice and its own
 // listener channel. The operator does not monitor it; listeners pick it.
 export class ExtraChannel {
-  constructor({ apiBase, lang, onChange = () => {}, onError = () => {} }) {
+  constructor({ apiBase, lang, onChange = () => {}, onError = () => {}, onSegment = () => {} }) {
     this.lang = lang;
     this.onChange = onChange;
     this.onError = onError;
+    this.onSegment = onSegment;
+    this.segmentText = "";
     this.state = "idle";
     this.listeners = 0;
     this.text = "";
@@ -30,10 +32,13 @@ export class ExtraChannel {
           if (segmentBreak) {
             this.speech.endSegment();
             this.recorder.end();
+            if (this.segmentText.trim()) this.onSegment(this.lang, applyGlossary(this.segmentText.trim(), this.rules));
+            this.segmentText = "";
             if (this.text && !this.text.endsWith("\n\n")) this.text += "\n\n";
           } else {
             this.speech.feed(delta);
             this.recorder.delta(delta);
+            this.segmentText += delta || "";
             this.text = (this.text + (delta || "")).slice(-20000);
           }
           this._sendCaption();
@@ -83,6 +88,8 @@ export class ExtraChannel {
     this._sendCaption();
     if (this.state === "starting") this._set(this.engine.pc ? "live" : "starting");
   }
+
+  setInputMuted(muted) { this.engine.setInputMuted(muted); }
 
   stop() {
     this.broadcaster?.stop();

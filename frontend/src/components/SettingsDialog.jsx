@@ -24,7 +24,7 @@ export const SettingsDialog = () => {
   const {
     MODES, modeKey, setModeKey, customInstructions, setCustomInstructions,
     profile, setProfile, active, saveTranscripts, setSaveTranscripts,
-    sourceText, targetText, targetLang,
+    sourceText, targetText, targetLang, autoStopMinutes, setAutoStopMinutes,
   } = useTranslationSession();
   const set = (k) => (v) => setProfile((p) => ({ ...p, [k]: v }));
 
@@ -117,6 +117,16 @@ export const SettingsDialog = () => {
           </div>
           <Field label={t("Places")} textarea value={profile.vocabPlaces} onChange={set("vocabPlaces")} disabled={active} testId="profile-vocab-places" />
           <Field label={t("Additional Instructions")} textarea value={profile.additional} onChange={set("additional")} disabled={active} testId="profile-additional" />
+        </div>
+
+        {/* Budget protection */}
+        <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
+          <label htmlFor="autostop" className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">{t("Automatic stop")}</label>
+          <div className="flex items-center gap-2">
+            <input id="autostop" data-testid="autostop-input" type="number" min="0" max="600" step="5" value={autoStopMinutes || 0} onChange={(e) => setAutoStopMinutes(Math.max(0, Math.min(600, Number(e.target.value) || 0)))}
+              className="w-24 h-10 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm" />
+            <span className="text-sm text-slate-500">{t("minutes after the broadcast starts (0 = off)")}</span>
+          </div>
         </div>
 
         {/* Privacy + export */}

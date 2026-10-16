@@ -50,8 +50,10 @@ def test_health_and_security_headers(client):
 
 
 def test_body_limit_before_json_validation(client):
-    response = client.post('/api/events', content=b'x' * (server.MAX_BODY_BYTES + 1), headers=AUTH)
+    response = client.post('/api/realtime-session', content=b'x' * (server.MAX_BODY_BYTES + 1), headers=AUTH)
     assert response.status_code == 413
+    # Event creation accepts a logo, so it has a larger, still bounded, limit.
+    assert client.post('/api/events', content=b'x' * (server.LARGE_BODY_BYTES + 1), headers=AUTH).status_code == 413
 
 
 def test_chunked_body_limit():
@@ -60,7 +62,7 @@ def test_chunked_body_limit():
             yield b'x' * 20000
             yield b'y' * 20000
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server.app), base_url='http://test') as client:
-            response = await client.post('/api/events', content=chunks(), headers=AUTH)
+            response = await client.post('/api/realtime-session', content=chunks(), headers=AUTH)
             assert response.status_code == 413
     asyncio.run(run())
 
@@ -381,3 +383,127 @@ def test_summary_uses_responses_api_without_storage(client, monkeypatch):
     assert seen['body']['store'] is False and seen['body']['model'] == server.SUMMARY_MODEL
     assert 'French' in seen['body']['instructions']
     assert client.post('/api/summary', json={'text': transcript}).status_code == 401
+
+
+def test_caption_relay_targets_only_zoom_and_teams(client, monkeypatch):
+    sent = []
+
+    def handler(request):
+        sent.append((str(request.url), request.read().decode(), request.headers['content-type']))
+        return httpx.Response(200)
+
+    _mock_speech(monkeypatch, handler)
+    zoom = 'https://wmcc.zoom.us/closedcaption?id=1&ns=x&expire=9&signature=abc&seq=3'
+    r = client.post('/api/caption-relay', headers=AUTH, json={'provider': 'zoom', 'url': zoom, 'text': 'Bonjour à tous', 'lang': 'fr-FR', 'seq': 7})
+    assert r.json() == {'ok': True, 'status': 200}
+    url, body, ctype = sent[-1]
+    assert url.startswith('https://wmcc.zoom.us/closedcaption?') and 'seq=7' in url and 'lang=fr-FR' in url and url.count('seq=') == 1
+    assert body == 'Bonjour à tous' and ctype.startswith('text/plain')
+    teams = 'https://api.captions.office.microsoft.com/cartcaption?meetingid=m1&token=t1'
+    assert client.post('/api/caption-relay', headers=AUTH, json={'provider': 'teams', 'url': teams, 'text': 'Hi', 'lang': 'en-US'}).json()['ok']
+    assert 'lang=en-us' in sent[-1][0]
+    for bad in ['https://evil.example/zoom.us', 'http://wmcc.zoom.us/closedcaption', 'https://zoom.us.evil.com/x', 'https://wmcc.zoom.us:8443/x']:
+        assert client.post('/api/caption-relay', headers=AUTH, json={'provider': 'zoom', 'url': bad, 'text': 'x'}).status_code == 400
+    assert client.post('/api/caption-relay', json={'provider': 'zoom', 'url': zoom, 'text': 'x'}).status_code == 401
+
+
+def test_human_interpreter_booth_flow(client):
+    ev = event(client, target_language='en', extra_languages=['es', 'fr'], human_languages=['fr', 'en'])
+    assert ev['human'] == ['fr']  # the main language always stays with the AI
+    code = ev['interpreter_code']
+    url = f"/api/ws/{ev['id']}"
+    with client.websocket_connect(url + '?role=operator&lang=src') as floor, \
+         client.websocket_connect(url + '?role=booth&lang=src') as booth:
+        floor.send_json({'token': ev['operator_token'], 'format': 'pcm16'})
+        assert floor.receive_json()['type'] == 'ready'
+        booth.send_json({'code': code})
+        assert booth.receive_json()['live'] is True
+        floor.send_bytes(b'\x05\x00' * 640)
+        assert booth.receive_bytes() == b'\x05\x00' * 640
+        with client.websocket_connect(url + '?role=interpreter&lang=fr') as interp, client.websocket_connect(url + '?lang=fr') as listener:
+            interp.send_json({'code': code})
+            assert interp.receive_json()['type'] == 'ready'
+            interp.send_json({'type': 'meta', 'mode': 'human', 'voice': None})
+            listener.send_json({})
+            status = listener.receive_json()
+            assert status['live'] is True and status['meta'] == {'mode': 'human', 'voice': None}
+            interp.send_bytes(b'\x09\x00' * 640)
+            assert listener.receive_bytes() == b'\x09\x00' * 640
+    for role, lang, payload, expected in [('interpreter', 'fr', {'code': 'wrong'}, 4401), ('interpreter', 'es', {'code': code}, 4403),
+                                          ('listener', 'src', {}, 4403), ('booth', 'fr', {'code': code}, 4400)]:
+        with client.websocket_connect(f"{url}?role={role}&lang={lang}") as ws:
+            ws.send_json(payload)
+            with pytest.raises(WebSocketDisconnect) as error:
+                ws.receive_json()
+            assert error.value.code == expected
+    assert server.EVENTS[ev['id']]['usage'].get('fr') is None  # human channels never count as AI usage
+    rotated = client.post(f"/api/events/{ev['id']}/interpreter-code", headers=AUTH).json()['interpreter_code']
+    assert rotated != code
+
+
+def test_usage_branding_summaries_and_library(client, monkeypatch):
+    ev = event(client, logo='data:image/png;base64,iVBORw0KGgo=', sponsor='Merci à BMH')
+    assert ev['logo'].startswith('data:image/png') and ev['sponsor'] == 'Merci à BMH'
+    assert client.post('/api/events', headers=AUTH, json={'logo': 'data:image/svg+xml;base64,PHN2Zz4='}).status_code == 400
+    url = f"/api/ws/{ev['id']}"
+    with client.websocket_connect(url + '?role=operator') as op:
+        op.send_json({'token': ev['operator_token'], 'format': 'pcm16'})
+        op.receive_json()
+        time.sleep(0.05)
+    usage = client.get('/api/usage', headers=AUTH).json()
+    assert usage['minutes_by_language']['en'] >= 0 and usage['cap_minutes'] is None
+    assert client.get('/api/events', headers=AUTH).json()['events'][0]['usage']['en'] > 0
+    put = client.put(f"/api/events/{ev['id']}/summaries", headers=AUTH, json={'lang': 'fr', 'text': '## Points clés\n- Bienvenue'})
+    assert put.json()['summaries'] == {'fr': '## Points clés\n- Bienvenue'}
+    assert client.get(f"/api/events/{ev['id']}").json()['summaries']['fr'].startswith('## Points')
+    assert client.delete(f"/api/events/{ev['id']}/summaries/fr", headers=AUTH).json()['summaries'] == {}
+    assert client.put(f"/api/events/{ev['id']}/branding", headers=AUTH, json={'logo': None, 'sponsor': ''}).json()['logo'] is None
+    lib = {'glossaries': [{'name': 'Église', 'text': 'Monkton => Moncton'}]}
+    assert client.put('/api/library', headers=AUTH, json=lib).json() == lib
+    assert client.get('/api/library', headers=AUTH).json() == lib
+    assert client.get('/api/library').status_code == 401
+    monkeypatch.setattr(server, 'USAGE_CAP_MINUTES', 0.0001)
+    server.STORE.set(server._month_key(), {'en': 60})
+    response = client.post('/api/realtime-session', headers=AUTH, json={'target_language': 'en'})
+    assert response.status_code == 402 and 'monthly' in response.json()['detail']
+
+
+def test_sso_flow_issues_operator_session_for_allowed_accounts(client, monkeypatch):
+    monkeypatch.setenv('OIDC_ISSUER', 'https://login.example.com')
+    monkeypatch.setenv('OIDC_CLIENT_ID', 'cid')
+    monkeypatch.setenv('OIDC_CLIENT_SECRET', 'secret')
+    monkeypatch.setenv('OIDC_ALLOWED', 'boss@bmh.org,@stat4research.com')
+    monkeypatch.setenv('PUBLIC_ORIGIN', 'https://translate.example.org')
+    server._oidc_discovery.clear()
+    emails = iter(['team@stat4research.com', 'intruder@gmail.com'])
+
+    def handler(request):
+        path = request.url.path
+        if path.endswith('openid-configuration'):
+            return httpx.Response(200, json={'authorization_endpoint': 'https://login.example.com/auth', 'token_endpoint': 'https://login.example.com/token', 'userinfo_endpoint': 'https://login.example.com/me'})
+        if path == '/token':
+            body = request.read().decode()
+            assert 'code_verifier=' in body and 'client_secret=secret' in body
+            return httpx.Response(200, json={'access_token': 'at'})
+        return httpx.Response(200, json={'email': next(emails), 'email_verified': True})
+
+    _mock_speech(monkeypatch, handler)
+    assert client.get('/api/auth/sso').json()['enabled'] is True
+    for allowed in (True, False):
+        start = client.get('/api/auth/sso/start', follow_redirects=False)
+        assert start.status_code == 302 and start.headers['location'].startswith('https://login.example.com/auth?')
+        state = dict(httpx.URL(start.headers['location']).params)['state']
+        assert 'code_challenge_method=S256' in start.headers['location']
+        done = client.get(f'/api/auth/sso/callback?code=c&state={state}', follow_redirects=False)
+        location = done.headers['location']
+        if allowed:
+            assert location.startswith('https://translate.example.org/#sso=')
+            session = location.split('#sso=')[1]
+            who = client.get('/api/operator', headers={'Authorization': 'Bearer ' + session}).json()
+            assert who['email'] == 'team@stat4research.com'
+            client.post('/api/auth/logout', headers={'Authorization': 'Bearer ' + session})
+            assert client.get('/api/operator', headers={'Authorization': 'Bearer ' + session}).status_code == 401
+        else:
+            assert '#sso_error=' in location
+    replay = client.get(f'/api/auth/sso/callback?code=c&state={state}', follow_redirects=False)
+    assert '#sso_error=' in replay.headers['location']  # states are single-use

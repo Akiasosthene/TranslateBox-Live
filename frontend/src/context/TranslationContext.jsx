@@ -5,6 +5,8 @@ import { getTarget } from "../lib/languages";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { useBroadcast } from "../hooks/useBroadcast";
 import { SegmentRecorder } from "../lib/transcript";
+import { CaptionRelay } from "../lib/captionRelay";
+import { dubSegments } from "../lib/dubbing";
 import { operatorFetch, responseError } from "../lib/api";
 import { SpeechPipeline, STUDIO_VOICES, VOICE_STYLES, applyGlossary, parseGlossary, previewVoice as requestPreview } from "../lib/speech";
 
@@ -83,6 +85,16 @@ export function TranslationProvider({ children }) {
   const [previewing, setPreviewing] = useState(false);
   const speechRef = useRef(null);
   const [extraLangs, setExtraLangs] = usePersistentState("tbl-extra-langs", []);
+  const [humanLangs, setHumanLangs] = usePersistentState("tbl-human-langs", []);
+  const [pttEnabled, setPttEnabled] = usePersistentState("tbl-ptt", false);
+  const [autoStopMinutes, setAutoStopMinutes] = usePersistentState("tbl-autostop", 0);
+  const [relayDestinations, setRelayDestinations] = useState([]);
+  const relayRef = useRef(null);
+  if (!relayRef.current) relayRef.current = new CaptionRelay({ apiBase: API, onChange: setRelayDestinations });
+  const primarySegmentRef = useRef("");
+  const glossaryRulesRef = useRef([]);
+  const targetLangRef = useRef(targetLang);
+  targetLangRef.current = targetLang;
   // Timed transcripts for subtitle export and summaries (tab memory only).
   const recordersRef = useRef({ source: new SegmentRecorder(), target: new SegmentRecorder() });
 
@@ -98,6 +110,13 @@ export function TranslationProvider({ children }) {
         onTranscript: ({ side, delta, segmentBreak }) => {
           const rec = recordersRef.current[side];
           if (rec) { if (segmentBreak) rec.end(); else rec.delta(delta); }
+          if (side === "target") {
+            if (segmentBreak) {
+              const text = primarySegmentRef.current.trim();
+              primarySegmentRef.current = "";
+              if (text) relayRef.current.push(targetLangRef.current, applyGlossary(text, glossaryRulesRef.current));
+            } else primarySegmentRef.current += delta || "";
+          }
           if (side === "target" && speechRef.current) {
             if (segmentBreak) speechRef.current.endSegment();
             else speechRef.current.feed(delta);
@@ -136,6 +155,7 @@ export function TranslationProvider({ children }) {
   }, [voiceMode, studioVoice, voiceStyle, glossary]);
 
   const glossaryRules = useMemo(() => parseGlossary(glossary), [glossary]);
+  glossaryRulesRef.current = glossaryRules;
   const captionText = useMemo(() => applyGlossary(targetText, glossaryRules), [targetText, glossaryRules]);
   const voiceMeta = useMemo(() => voiceMode === "studio"
     ? { mode: "studio", voice: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label || studioVoice }
@@ -290,13 +310,8 @@ export function TranslationProvider({ children }) {
     });
   }, []);
 
-  const toggleInputMute = useCallback(() => {
-    setInputMuted((m) => {
-      const next = !m;
-      engineRef.current.setInputMuted(next);
-      return next;
-    });
-  }, []);
+  const inputMutedRef = useRef(inputMuted);
+  inputMutedRef.current = inputMuted;
 
   const testInput = useCallback(async () => {
     setError(null);
@@ -326,7 +341,43 @@ export function TranslationProvider({ children }) {
   const broadcast = useBroadcast({
     API, engineRef, targetLang, profile, start, stop, setError, targetText: captionText, active, setTargetLang,
     voiceMeta, extraLangs, setExtraLangs, channelStartArgs, channelVoiceConfig, keepTranscripts: saveTranscripts,
+    humanLangs, setHumanLangs, micMuted: inputMuted,
+    onExtraSegment: (lang, text) => relayRef.current.push(lang, text),
   });
+
+  // Push-to-talk and the mic button gate every channel that uses the microphone.
+  const setMicMuted = useCallback((muted) => {
+    engineRef.current.setInputMuted(muted);
+    broadcast.setChannelsMicMuted(muted);
+    setInputMuted(muted);
+  }, [broadcast]);
+  useEffect(() => { if (pttEnabled) setMicMuted(true); }, [pttEnabled, active]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Automatic stop after a set duration protects the OpenAI budget.
+  useEffect(() => {
+    if (!autoStopMinutes || !broadcast.broadcasting || duration < autoStopMinutes * 60) return;
+    broadcast.stopEvent();
+    setError(`Automatic stop after ${autoStopMinutes} minutes (Settings → automatic stop).`);
+  }, [duration, autoStopMinutes, broadcast]);
+
+  const fetchUsage = useCallback(async () => {
+    const res = await operatorFetch(`${API}/usage`);
+    if (!res.ok) throw new Error(await responseError(res, "Usage unavailable."));
+    return res.json();
+  }, []);
+  const loadLibrary = useCallback(async () => {
+    const res = await operatorFetch(`${API}/library`);
+    if (!res.ok) throw new Error(await responseError(res, "Library unavailable."));
+    return (await res.json()).glossaries || [];
+  }, []);
+  const saveLibrary = useCallback(async (glossaries) => {
+    const res = await operatorFetch(`${API}/library`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ glossaries }) });
+    if (!res.ok) throw new Error(await responseError(res, "Could not save the library."));
+    return (await res.json()).glossaries;
+  }, []);
+  const dub = useCallback((segments, opts) => dubSegments({ apiBase: API, segments, voice: studioVoice, style: voiceStyle, rules: glossaryRules, ...opts }), [studioVoice, voiceStyle, glossaryRules]);
+  const addRelay = useCallback((d) => relayRef.current.add(d), []);
+  const removeRelay = useCallback((id) => relayRef.current.remove(id), []);
 
   // Transcripts per language: primary target, extra channels, and the source.
   const transcripts = useCallback(() => {
@@ -366,7 +417,9 @@ export function TranslationProvider({ children }) {
     level, testing, metrics,
     start, stop, restart, reset,
     ...broadcast,
-    toggleTranslationMute, toggleInputMute, testInput, stopTest,
+    toggleTranslationMute, toggleInputMute: () => setMicMuted(!inputMutedRef.current), testInput, stopTest,
+    setMicMuted, pttEnabled, setPttEnabled, autoStopMinutes, setAutoStopMinutes,
+    relayDestinations, addRelay, removeRelay, fetchUsage, loadLibrary, saveLibrary, dub, humanLangs, setHumanLangs,
     clearError: () => setError(null),
     voiceMode, setVoiceMode, studioVoice, setStudioVoice, voiceStyleKey, setVoiceStyleKey,
     customVoiceStyle, setCustomVoiceStyle, glossary, setGlossary, previewVoice, previewing,

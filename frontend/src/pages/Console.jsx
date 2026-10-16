@@ -9,6 +9,7 @@ import { BroadcastPanel } from "../components/BroadcastPanel";
 import { AudioControlCard } from "../components/console/AudioControlCard";
 import { VoiceCard } from "../components/console/VoiceCard";
 import { TranscriptCard } from "../components/console/TranscriptCard";
+import { IntegrationsCard } from "../components/console/IntegrationsCard";
 import { TransportControls } from "../components/console/TransportControls";
 import { getTarget, sourceLabel } from "../lib/languages";
 
@@ -67,6 +68,7 @@ export default function Console() {
         <section id="event" className="scroll-mt-24 space-y-4">
           <h2 className="font-bold text-lg">2 · {t("Create an event")}</h2>
           <BroadcastPanel />
+          <IntegrationsCard />
         </section>
 
         <div className="flex items-center justify-between">

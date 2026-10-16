@@ -1,6 +1,8 @@
 import { useLocale } from '../../context/LocaleContext';
 import React, { useState } from "react";
-import { FileText, Sparkles, Loader2, Copy, Download, Captions } from "lucide-react";
+import { FileText, Sparkles, Loader2, Copy, Download, Captions, AudioLines, Send, Undo2 } from "lucide-react";
+import { Markdownish } from "../Markdownish";
+import { TARGET_LANGUAGES } from "../../lib/languages";
 import { useTranslationSession } from "../../context/TranslationContext";
 import { toSRT, toVTT, downloadText } from "../../lib/transcript";
 import { applyGlossary, parseGlossary } from "../../lib/speech";
@@ -9,7 +11,9 @@ import { applyGlossary, parseGlossary } from "../../lib/speech";
 // subtitles, and create an AI summary of the key takeaways.
 export const TranscriptCard = () => {
   const { t } = useLocale();
-  const { transcripts, summarize, active, broadcasting, saveTranscripts, glossary, profile, eventInfo, targetText, sourceText, targetLang } = useTranslationSession();
+  const { transcripts, summarize, active, broadcasting, saveTranscripts, glossary, profile, eventInfo, targetText, sourceText, targetLang, publishSummary, unpublishSummary, dub, studioVoice } = useTranslationSession();
+  const [summaryLang, setSummaryLang] = useState("");
+  const [dubbing, setDubbing] = useState(null); // {key, progress, controller}
   const [busy, setBusy] = useState("");
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState("");
@@ -32,11 +36,28 @@ export const TranscriptCard = () => {
   const makeSummary = async (row) => {
     setBusy(row.key); setError(""); setSummary(null); setCopied(false);
     try {
-      const lang = row.key === "source" ? targetLang : row.lang;
+      const lang = summaryLang || (row.key === "source" ? targetLang : row.lang);
       const text = await summarize({ text: row.recorder.text(), lang });
-      setSummary({ label: row.label, lang: row.lang, text });
+      setSummary({ label: row.label, lang, text });
     } catch (e) { setError(e.message); }
     finally { setBusy(""); }
+  };
+
+  const makeDub = async (row) => {
+    const controller = new AbortController();
+    setDubbing({ key: row.key, progress: 0, controller }); setError("");
+    try {
+      const blob = await dub(row.recorder.all(), { signal: controller.signal, onProgress: (p) => setDubbing((d) => d && { ...d, progress: p }) });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${base}-${row.lang}-voice-${studioVoice}.wav`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { if (e.name !== "AbortError") setError(e.message); }
+    finally { setDubbing(null); }
+  };
+  const published = eventInfo?.summaries || {};
+  const publish = async () => {
+    try { await publishSummary(summary.lang, summary.text); } catch (e) { setError(e.message); }
   };
 
   return (
@@ -57,6 +78,11 @@ export const TranscriptCard = () => {
               <button onClick={() => save(row, "txt")} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800">TXT</button>
               <button onClick={() => save(row, "srt")} title={t("Subtitles for video")} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1"><Captions className="h-3.5 w-3.5" />SRT</button>
               <button onClick={() => save(row, "vtt")} title={t("Subtitles for video")} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800">VTT</button>
+              {row.key !== "source" && (
+                dubbing?.key === row.key
+                  ? <button onClick={() => dubbing.controller.abort()} className="h-9 px-3 rounded-lg border border-amber-500 text-amber-700 dark:text-amber-300 text-xs font-semibold inline-flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />{Math.round(dubbing.progress * 100)}% · {t("Cancel")}</button>
+                  : <button data-testid={`dub-${row.key}`} onClick={() => makeDub(row)} disabled={!!dubbing} title={t("Translated voice track (WAV) aligned to the session timing, with the studio voice")} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1.5 disabled:opacity-40"><AudioLines className="h-3.5 w-3.5" />{t("Dubbed voice")}</button>
+              )}
               <button data-testid={`summary-${row.key}`} onClick={() => makeSummary(row)} disabled={!!busy}
                 className="h-9 px-3 rounded-lg border border-emerald-500 text-emerald-700 dark:text-emerald-300 text-xs font-semibold hover:bg-emerald-500/10 inline-flex items-center gap-1.5 disabled:opacity-50">
                 {busy === row.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{t("AI summary")}
@@ -65,6 +91,15 @@ export const TranscriptCard = () => {
           ))}
         </ul>
       )}
+      {rows.length > 0 && (
+        <label className="flex items-center gap-2 text-xs text-slate-500">
+          {t("Summary language")}
+          <select value={summaryLang} onChange={(e) => setSummaryLang(e.target.value)} className="h-8 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-2 text-xs" data-testid="summary-language">
+            <option value="">{t("Same as the transcript")}</option>
+            {TARGET_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.flag} {t(l.name)}</option>)}
+          </select>
+        </label>
+      )}
       {(active || broadcasting) && rows.length > 0 && <p className="text-xs text-slate-500">{t("A summary made during the session covers what has been said so far.")}</p>}
       {error && <p role="alert" className="text-sm text-rose-500">{error}</p>}
 
@@ -72,7 +107,10 @@ export const TranscriptCard = () => {
         <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-4 space-y-3" data-testid="summary-result">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <p className="text-sm font-semibold">{t("AI summary")} · {t(summary.label)}</p>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              {eventInfo && (published[summary.lang] === summary.text
+                ? <button onClick={() => unpublishSummary(summary.lang).catch((e) => setError(e.message))} className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold inline-flex items-center gap-1.5"><Undo2 className="h-3.5 w-3.5" />{t("Remove from listener page")}</button>
+                : <button data-testid="publish-summary" onClick={publish} className="h-8 px-3 rounded-lg bg-emerald-600 text-white text-xs font-semibold inline-flex items-center gap-1.5"><Send className="h-3.5 w-3.5" />{t("Publish to listeners")}</button>)}
               <button onClick={async () => { try { await navigator.clipboard.writeText(summary.text); setCopied(true); } catch { setCopied(false); } }} className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold inline-flex items-center gap-1.5"><Copy className="h-3.5 w-3.5" />{copied ? t("Copied") : t("Copy")}</button>
               <button onClick={() => downloadText(`${base}-summary-${summary.lang}.md`, summary.text, "text/markdown")} className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold inline-flex items-center gap-1.5"><Download className="h-3.5 w-3.5" />.md</button>
             </div>
@@ -85,21 +123,3 @@ export const TranscriptCard = () => {
   );
 };
 
-// Minimal, safe rendering of the summary's Markdown (headings, bullets, bold).
-function Markdownish({ text }) {
-  const inline = (line) => line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith("**") && part.endsWith("**") ? <strong key={i}>{part.slice(2, -2)}</strong> : <React.Fragment key={i}>{part}</React.Fragment>);
-  const blocks = [];
-  let list = null;
-  text.split("\n").forEach((raw, i) => {
-    const line = raw.trimEnd();
-    const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
-    if (bullet) { (list ||= []).push(<li key={i}>{inline(bullet[1])}</li>); return; }
-    if (list) { blocks.push(<ul key={`l${i}`} className="list-disc pl-5 space-y-1">{list}</ul>); list = null; }
-    const h = line.match(/^#{1,4}\s+(.*)$/);
-    if (h) blocks.push(<h3 key={i} className="font-bold text-sm mt-2">{inline(h[1])}</h3>);
-    else if (line.trim()) blocks.push(<p key={i}>{inline(line)}</p>);
-  });
-  if (list) blocks.push(<ul key="lend" className="list-disc pl-5 space-y-1">{list}</ul>);
-  return <div className="text-sm leading-relaxed space-y-2 text-slate-800 dark:text-slate-100">{blocks}</div>;
-}

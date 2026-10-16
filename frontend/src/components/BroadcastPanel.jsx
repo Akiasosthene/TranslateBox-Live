@@ -1,7 +1,7 @@
 import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { Radio, Users, QrCode as QrIcon, Play, Square, X, Monitor, Languages } from "lucide-react";
+import { Radio, Users, QrCode as QrIcon, Play, Square, X, Monitor, Languages, UserRound, ImagePlus, Gauge } from "lucide-react";
 import { TARGET_LANGUAGES, getTarget } from "../lib/languages";
 import { useTranslationSession } from "../context/TranslationContext";
 
@@ -12,7 +12,14 @@ export const BroadcastPanel = () => {
     savedEvents, catalogError, catalogLoading, refreshEvents, resumeEvent, newEvent,
     listeners, broadcasting, active, captionsToListeners, setCaptionsToListeners, status, level, metrics,
     targetLang, extraLangs, setExtraLangs, channels, primaryListeners,
+    humanLangs, setHumanLangs, rotateInterpreterCode, fetchUsage,
   } = useTranslationSession();
+  const [logo, setLogo] = useState("");
+  const [sponsor, setSponsor] = useState("");
+  const [usage, setUsage] = useState(null);
+  useEffect(() => { fetchUsage().then(setUsage).catch(() => setUsage(null)); }, [fetchUsage, broadcasting]);
+  const toggleHuman = (code) => setHumanLangs((cur) => (cur || []).includes(code) ? cur.filter((l) => l !== code) : [...(cur || []), code]);
+  const boothUrl = eventInfo ? `${window.location.origin}/e/${eventInfo.id}/booth` : "";
   const MAX_EXTRA = 4;
   const chosenExtras = (extraLangs || []).filter((l) => l !== targetLang);
   const toggleExtra = (code) => setExtraLangs((cur) => {
@@ -23,6 +30,7 @@ export const BroadcastPanel = () => {
   const eventLangs = eventInfo ? (eventInfo.targets || [eventInfo.target]) : [];
   const channelState = (lang, i) => {
     if (i === 0) return { live: broadcasting, listeners: primaryListeners, state: broadcasting ? "live" : "idle" };
+    if ((eventInfo?.human || []).includes(lang)) return { live: false, listeners: eventInfo.channels?.find((c) => c.lang === lang)?.listeners || 0, state: "human" };
     const ch = channels.find((c) => c.lang === lang);
     return { live: ch?.state === "live", listeners: ch?.listeners || 0, state: ch?.state || "idle" };
   };
@@ -41,8 +49,8 @@ export const BroadcastPanel = () => {
     if (listenUrl) QRCode.toDataURL(listenUrl, { width: 512, margin: 4 }).then(setQr).catch(() => {});
   }, [listenUrl]);
 
-  const doCreate = async () => { setBusy(true); setError(""); try { await createEvent({ name, organization: org, pin }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
-  const doStart = async () => { setBusy(true); setError(""); try { await startEvent({ name, organization: org, pin }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const doCreate = async () => { setBusy(true); setError(""); try { await createEvent({ name, organization: org, pin, logo, sponsor }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const doStart = async () => { setBusy(true); setError(""); try { await startEvent({ name, organization: org, pin, logo, sponsor }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
 
   return (
     <section className="rounded-2xl bg-white/80 dark:bg-[#121824]/70 backdrop-blur-xl border border-slate-200/70 dark:border-white/10 shadow-lg p-4 md:p-5 space-y-4" data-testid="broadcast-panel">
@@ -91,7 +99,29 @@ export const BroadcastPanel = () => {
                   className={`px-3 py-1.5 rounded-full border text-sm transition-colors disabled:opacity-40 ${on ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-slate-300 dark:border-slate-700 hover:border-slate-400"}`}>{l.flag} {t(l.name)}</button>;
               })}
             </div>
+            {chosenExtras.length > 0 && (
+              <div className="space-y-1" data-testid="human-languages">
+                <p className="text-xs text-slate-500">{t("Who interprets each extra language?")}</p>
+                <div className="flex flex-wrap gap-2">
+                  {chosenExtras.map((code) => {
+                    const human = (humanLangs || []).includes(code);
+                    return <button key={code} type="button" aria-pressed={human} data-testid={`human-lang-${code}`} onClick={() => toggleHuman(code)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs ${human ? "border-sky-500 bg-sky-500/10 text-sky-700 dark:text-sky-300" : "border-slate-300 dark:border-slate-700"}`}>
+                      {getTarget(code).flag} {code.toUpperCase()} · {human ? <><UserRound className="h-3.5 w-3.5" />{t("Human interpreter")}</> : t("AI")}
+                    </button>;
+                  })}
+                </div>
+              </div>
+            )}
             {chosenExtras.length > 0 && <p className="text-xs text-amber-700 dark:text-amber-300">{t("Each extra language runs its own translation session from the same microphone. OpenAI usage is multiplied by the number of languages.")} ({chosenExtras.length + 1}×)</p>}
+          </div>
+          <div className="sm:col-span-3 grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-3 items-center" data-testid="branding-fields">
+            <label className="inline-flex items-center gap-2 h-11 px-3 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-sm cursor-pointer">
+              {logo ? <img src={logo} alt="" className="h-7 w-7 object-contain" /> : <ImagePlus className="h-4 w-4" />}
+              {logo ? t("Change logo") : t("Add a logo")}
+              <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { try { setLogo(await shrinkLogo(f)); } catch (err) { setError(err.message); } } }} />
+            </label>
+            <input aria-label={t("Sponsor or thank-you line")} maxLength={160} value={sponsor} onChange={(e) => setSponsor(e.target.value)} placeholder={t("Sponsor or thank-you line (optional)")} className="h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm dark:text-slate-100" />
           </div>
           <button data-testid="create-event-button" onClick={doCreate} disabled={busy} className="sm:col-span-3 h-11 rounded-lg border border-emerald-500 text-emerald-600 dark:text-emerald-400 font-semibold hover:bg-emerald-500/10 disabled:opacity-50">{t("CREATE EVENT")}</button>
         </div>
@@ -105,11 +135,21 @@ export const BroadcastPanel = () => {
               {eventLangs.map((lang, i) => {
                 const c = channelState(lang, i);
                 return <li key={lang} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm ${c.live ? "border-emerald-500 bg-emerald-500/10" : c.state === "error" ? "border-rose-500" : "border-slate-300 dark:border-slate-700"}`}>
-                  <span className={`h-2 w-2 rounded-full ${c.live ? "bg-emerald-500" : c.state === "starting" ? "bg-amber-400 animate-pulse" : c.state === "error" ? "bg-rose-500" : "bg-slate-400"}`} />
+                  {c.state === "human" ? <UserRound className="h-3.5 w-3.5 text-sky-500" /> : <span className={`h-2 w-2 rounded-full ${c.live ? "bg-emerald-500" : c.state === "starting" ? "bg-amber-400 animate-pulse" : c.state === "error" ? "bg-rose-500" : "bg-slate-400"}`} />}
                   {getTarget(lang).flag} {lang.toUpperCase()} <span className="font-mono text-xs text-slate-500">{c.listeners}</span>
                 </li>;
               })}
             </ul>
+            {(eventInfo.human || []).length > 0 && (
+              <div className="rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-sm space-y-1.5" data-testid="booth-info">
+                <p className="font-semibold flex items-center gap-2"><UserRound className="h-4 w-4 text-sky-500" />{t("Interpreter booth")} · {(eventInfo.human || []).map((l) => l.toUpperCase()).join(", ")}</p>
+                <p className="font-mono text-xs break-all">{boothUrl}</p>
+                {eventInfo.interpreter_code
+                  ? <p>{t("Booth code")}: <b className="font-mono tracking-wider" data-testid="booth-code">{eventInfo.interpreter_code}</b></p>
+                  : <button className="underline" onClick={() => rotateInterpreterCode().catch((e) => setError(e.message))}>{t("Create a new booth code")}</button>}
+                <p className="text-xs text-slate-500">{t("Send the link and code to your interpreters only. They hear the speaker and speak into their own microphone.")}</p>
+              </div>
+            )}
             <button onClick={newEvent} disabled={busy || active || broadcasting} className="text-sm underline disabled:opacity-40">{t("Choose another event / New event")}</button>
             <p className="text-sm font-semibold">{t("Scan to listen")}</p>
             <p className="text-sm text-slate-500">{t("On your phone: scan with the camera, open the link in Chrome, then tap LISTEN. Scanning alone does not start audio.")}</p>
@@ -146,6 +186,13 @@ export const BroadcastPanel = () => {
         </div>
       )}
 
+      {usage && (
+        <p className="flex items-center gap-2 text-xs text-slate-500" data-testid="usage-line">
+          <Gauge className="h-3.5 w-3.5" />{t("AI broadcast time this month")}: <b className="font-mono">{usage.total_minutes} min</b>
+          {usage.cap_minutes ? <> / {usage.cap_minutes} min</> : null}
+        </p>
+      )}
+
       {fs && qr && (
         <div className="fixed inset-0 z-[70] bg-[#0A0D14] flex flex-col items-center justify-center p-6" data-testid="qr-fullscreen">
           <button onClick={() => setFs(false)} className="absolute top-6 right-6 text-slate-300"><X className="h-7 w-7" /></button>
@@ -157,3 +204,21 @@ export const BroadcastPanel = () => {
     </section>
   );
 };
+
+// Resize an uploaded logo so it travels with the event (max ~220 KB).
+async function shrinkLogo(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => reject(new Error("This image could not be read.")); i.src = url; });
+    for (const size of [360, 260, 180]) {
+      const scale = Math.min(1, size / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.width * scale)); canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      const data = canvas.toDataURL("image/webp", 0.85);
+      const out = data.startsWith("data:image/webp") ? data : canvas.toDataURL("image/png");
+      if (out.length < 220000) return out;
+    }
+    throw new Error("This logo is too large. Use a simpler image.");
+  } finally { URL.revokeObjectURL(url); }
+}

@@ -1,5 +1,5 @@
 import { useLocale } from '../../context/LocaleContext';
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Play, Square, Mic, MicOff, Volume2, VolumeX, RotateCcw, Radio, Cpu, Wifi } from "lucide-react";
 import { useTranslationSession } from "../../context/TranslationContext";
 import { StatusIndicator } from "../StatusIndicator";
@@ -18,7 +18,24 @@ export const TransportControls = () => {
   const {
     status, active, inputMuted, translationMuted, duration, metrics,
     start, stop, restart, toggleTranslationMute, toggleInputMute,
+    pttEnabled, setPttEnabled, setMicMuted,
   } = useTranslationSession();
+  const [talking, setTalking] = useState(false);
+  const talkingRef = useRef(false);
+  const talk = (on) => {
+    if (!pttEnabled || !active || talkingRef.current === on) return;
+    talkingRef.current = on; setTalking(on); setMicMuted(!on);
+  };
+  // Hold the space bar to talk, unless typing in a field.
+  useEffect(() => {
+    if (!pttEnabled || !active) return undefined;
+    const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "") || e.target?.isContentEditable;
+    const down = (e) => { if (e.code === "Space" && !e.repeat && !typing(e)) { e.preventDefault(); talk(true); } };
+    const up = (e) => { if (e.code === "Space" && !typing(e)) { e.preventDefault(); talk(false); } };
+    const blur = () => talk(false);
+    window.addEventListener("keydown", down); window.addEventListener("keyup", up); window.addEventListener("blur", blur);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); };
+  }); // eslint-disable-line react-hooks/exhaustive-deps
 
   const micState = active ? (inputMuted ? "muted" : status.mic) : status.mic;
   const latency = metrics.avgLatencyMs ? (metrics.avgLatencyMs >= 1000 ? `${(metrics.avgLatencyMs / 1000).toFixed(1)}s` : `${metrics.avgLatencyMs}ms`) : "—";
@@ -36,6 +53,20 @@ export const TransportControls = () => {
         <button data-testid="mute-translation-button" onClick={toggleTranslationMute} title={t("Mute translation")} className={`h-12 w-12 flex items-center justify-center rounded-xl border transition-colors ${translationMuted ? "bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400" : "border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"}`}>{translationMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}</button>
         <button data-testid="restart-translation-button" onClick={restart} disabled={!active} title={t("Restart")} className="h-12 w-12 flex items-center justify-center rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40"><RotateCcw className="h-5 w-5" /></button>
         <SettingsDialog />
+      </div>
+
+      <div className="flex flex-col items-center gap-1.5">
+        {pttEnabled && active ? (
+          <button data-testid="ptt-button" aria-pressed={talking}
+            onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); talk(true); }} onPointerUp={() => talk(false)} onPointerCancel={() => talk(false)} onContextMenu={(e) => e.preventDefault()}
+            className={`select-none touch-none h-12 px-5 rounded-xl font-bold text-sm border-2 transition-colors ${talking ? "bg-emerald-500 border-emerald-500 text-white shadow-[0_0_24px_rgba(16,185,129,0.5)]" : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300"}`}>
+            {talking ? t("On air") : t("Hold to talk (Space)")}
+          </button>
+        ) : null}
+        <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer" data-testid="ptt-toggle">
+          <input type="checkbox" checked={pttEnabled} onChange={(e) => { setPttEnabled(e.target.checked); if (!e.target.checked) setMicMuted(false); }} className="h-3.5 w-3.5 accent-emerald-500" />
+          {t("Push-to-talk")}
+        </label>
       </div>
 
       <div className="lg:ml-auto flex items-center gap-4">

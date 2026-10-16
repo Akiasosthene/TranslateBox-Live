@@ -1,6 +1,6 @@
 import { useLocale } from '../../context/LocaleContext';
-import React from "react";
-import { AudioLines, Mic2, Play, Loader2, Check } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { AudioLines, Mic2, Play, Loader2, Check, Library } from "lucide-react";
 import { useTranslationSession } from "../../context/TranslationContext";
 import { STUDIO_VOICES, VOICE_STYLES } from "../../lib/speech";
 
@@ -13,7 +13,16 @@ export const VoiceCard = () => {
   const {
     voiceMode, setVoiceMode, studioVoice, setStudioVoice, voiceStyleKey, setVoiceStyleKey,
     customVoiceStyle, setCustomVoiceStyle, glossary, setGlossary, previewVoice, previewing,
+    loadLibrary, saveLibrary,
   } = useTranslationSession();
+  const [library, setLibrary] = useState([]);
+  const [picked, setPicked] = useState("");
+  const [saveName, setSaveName] = useState("");
+  const [libMsg, setLibMsg] = useState("");
+  useEffect(() => { loadLibrary().then(setLibrary).catch(() => setLibrary([])); }, [loadLibrary]);
+  const persist = async (next, msg) => {
+    try { setLibrary(await saveLibrary(next)); setLibMsg(msg); } catch (e) { setLibMsg(e.message); }
+  };
   const studio = voiceMode === "studio";
 
   const modes = [
@@ -88,6 +97,22 @@ export const VoiceCard = () => {
         <p className="text-xs text-slate-500 mt-1">{t("One per line: wrong => right. Leave the right side empty to hide a word. Applied to listener captions, the room screen, transcripts and the studio voice.")}</p>
         <textarea data-testid="glossary-input" value={glossary} onChange={(e) => setGlossary(e.target.value.slice(0, 4000))} rows={3}
           placeholder={"Breach Mender => Breach Mender House\nMonkton => Moncton"} className={`${input} py-2 font-mono`} />
+        <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2" data-testid="glossary-library">
+          <p className="flex items-center gap-2 text-xs font-semibold text-slate-500"><Library className="h-3.5 w-3.5" />{t("Shared glossaries (all operators)")}</p>
+          <div className="flex flex-wrap gap-2">
+            <select aria-label={t("Saved glossary")} value={picked} onChange={(e) => setPicked(e.target.value)} className={`${input} !mt-0 h-9 flex-1 min-w-[10rem]`}>
+              <option value="">{library.length ? t("Choose a glossary…") : t("No saved glossary yet")}</option>
+              {library.map((g) => <option key={g.name} value={g.name}>{g.name}</option>)}
+            </select>
+            <button type="button" disabled={!picked} onClick={() => { const g = library.find((x) => x.name === picked); if (g) { setGlossary(g.text); setLibMsg(t("Glossary loaded.")); } }} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold disabled:opacity-40">{t("Load")}</button>
+            <button type="button" disabled={!picked} onClick={() => persist(library.filter((g) => g.name !== picked), t("Glossary deleted."))} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold disabled:opacity-40">{t("Delete")}</button>
+          </div>
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); const name = saveName.trim(); if (!name) return; persist([...library.filter((g) => g.name !== name), { name, text: glossary }].slice(-50), t("Glossary saved.")); setSaveName(""); setPicked(name); }}>
+            <input aria-label={t("Glossary name")} value={saveName} maxLength={80} onChange={(e) => setSaveName(e.target.value)} placeholder={t("Save current corrections as…")} className={`${input} !mt-0 h-9 flex-1`} />
+            <button className="h-9 px-3 rounded-lg border border-emerald-500 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">{t("Save")}</button>
+          </form>
+          {libMsg && <p role="status" className="text-xs text-slate-500">{libMsg}</p>}
+        </div>
       </div>
     </section>
   );

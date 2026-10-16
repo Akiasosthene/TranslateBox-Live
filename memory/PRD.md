@@ -83,3 +83,13 @@ Applied code-review fixes without changing behavior:
 - Timed transcripts per language with TXT/SRT/VTT export; `/api/summary` (Responses API, store=false, model `OPENAI_SUMMARY_MODEL`).
 - Glossary block rule (`word =>`).
 - Not built (out of scope for a self-hosted operator app): Zoom/Teams/Cvent integrations, CEA-608 caption encoder, SSO, workspaces, minute billing, human interpreters, post-event AI dubbing.
+
+## V2.2 (2026-10) — Remaining hosted-platform features, self-hosted
+- Push-to-talk (button + Space) gating every microphone channel.
+- Caption relay to Zoom (API token, seq/lang) and Teams (CART link) through `/api/caption-relay`, host allowlist, no redirects followed.
+- OBS/vMix overlay (`?overlay=1`), light room screen (`?theme=light`), embeddable listener page (`?embed=1`, Caddy `frame-ancestors` from `EMBED_ORIGINS` on `/e/*` only).
+- Human interpreter booths: per-event booth code, floor feed on the `src` room (operator only publishes, booth only listens), `role=interpreter` publishes a human language, meta `mode: human`; no OpenAI session and no usage counted for human languages.
+- Usage metering per event and month (SQLite kv), `USAGE_CAP_MINUTES` refuses new sessions, client-side automatic stop.
+- Shared glossary library, event logo and sponsor line, published summaries, summary language choice, dubbed voice WAV from timed transcripts.
+- Optional OIDC single sign-on (PKCE, state single-use, userinfo email allowlist), in-memory sessions.
+- Still out of scope: CEA-608 hardware encoders, Zoom/Teams audio bots, billing/payments, per-user roles.

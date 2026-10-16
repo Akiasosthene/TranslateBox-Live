@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Depends
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -10,6 +10,10 @@ import secrets
 import time
 import logging
 import hashlib
+import base64
+import re
+from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,7 +21,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 import httpx
 import anyio
-from event_store import EventStore
+from event_store import EventStore, KVStore
 
 
 ROOT_DIR = Path(__file__).parent
@@ -40,6 +44,8 @@ TTS_RATE_MAX = int(os.environ.get("TTS_RATE_LIMIT_MAX", "300"))
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 SUMMARY_MODEL = os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-6-luna")
 SUMMARY_MAX_BODY = int(os.environ.get("SUMMARY_MAX_BODY_BYTES", "600000"))
+LARGE_BODY_BYTES = int(os.environ.get("LARGE_BODY_BYTES", "400000"))
+USAGE_CAP_MINUTES = float(os.environ.get("USAGE_CAP_MINUTES", "0"))  # 0 = no monthly cap
 LANGUAGE_NAMES = {
     "en": "English", "es": "Spanish", "pt": "Portuguese", "fr": "French", "ja": "Japanese",
     "ru": "Russian", "zh": "Chinese", "de": "German", "ko": "Korean", "hi": "Hindi",
@@ -101,15 +107,37 @@ async def lifespan(_app):
 app = FastAPI(title="TranslateBox Live API", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
+# Operator sessions created by single sign-on (OIDC). Kept in memory only:
+# a backend restart signs SSO operators out.
+SSO_SESSIONS = {}  # token -> {"email": str, "exp": float}
+SSO_SESSION_TTL = int(os.environ.get("SSO_SESSION_HOURS", "12")) * 3600
+
+
+def _sso_enabled() -> bool:
+    return all(os.environ.get(k) for k in ("OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"))
+
+
+def _sso_session(supplied: str):
+    if not supplied.startswith("Bearer "):
+        return None
+    now = time.time()
+    for token in [t for t, v in SSO_SESSIONS.items() if v["exp"] < now]:
+        SSO_SESSIONS.pop(token, None)
+    return SSO_SESSIONS.get(supplied[7:])
+
+
 def require_operator(request: Request):
     if _rate_limited("auth:" + _client_ip(request), 120):
         raise HTTPException(429, "Too many requests. Try again shortly.")
     expected = os.environ.get("OPERATOR_TOKEN", "")
-    if len(expected) < 32:
+    if len(expected) < 32 and not _sso_enabled():
         raise HTTPException(503, "Operator access is not configured on the server.")
     supplied = request.headers.get("authorization", "")
-    if not secrets.compare_digest(supplied.encode(), ("Bearer " + expected).encode()):
-        raise HTTPException(401, "Operator access required.")
+    if len(expected) >= 32 and secrets.compare_digest(supplied.encode(), ("Bearer " + expected).encode()):
+        return
+    if _sso_session(supplied):
+        return
+    raise HTTPException(401, "Operator access required.")
 
 api_router = APIRouter(prefix="/api")
 
@@ -140,7 +168,13 @@ class BodyLimitMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["method"] not in {"POST", "PUT", "PATCH"}:
             return await self.app(scope, receive, send)
-        limit = SUMMARY_MAX_BODY if scope.get("path") == "/api/summary" else MAX_BODY_BYTES
+        path = scope.get("path", "")
+        if path == "/api/summary":
+            limit = SUMMARY_MAX_BODY
+        elif path.startswith("/api/events") or path == "/api/library":
+            limit = LARGE_BODY_BYTES  # logos and the shared glossary library
+        else:
+            limit = MAX_BODY_BYTES
         chunks, size = [], 0
         while True:
             message = await receive()
@@ -174,8 +208,112 @@ async def root():
 
 
 @api_router.get("/operator", dependencies=[Depends(require_operator)])
-async def operator_access():
+async def operator_access(request: Request):
+    session = _sso_session(request.headers.get("authorization", ""))
+    return {"status": "ok", "email": session["email"] if session else None}
+
+
+@api_router.post("/auth/logout")
+async def logout(request: Request):
+    supplied = request.headers.get("authorization", "")
+    if supplied.startswith("Bearer "):
+        SSO_SESSIONS.pop(supplied[7:], None)
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Optional single sign-on for operators (OpenID Connect: Google, Microsoft
+# Entra ID, Okta…). Configure OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET
+# and OIDC_ALLOWED (emails and/or @domains). The operator code keeps working.
+# ---------------------------------------------------------------------------
+_oidc_discovery = {}
+_sso_pending = {}  # state -> {"verifier", "exp"}
+
+
+def _public_origin() -> str:
+    return (os.environ.get("PUBLIC_ORIGIN") or (_cors_origins[0] if _cors_origins else "")).rstrip("/")
+
+
+def _sso_allowed(email: str) -> bool:
+    email = (email or "").lower()
+    rules = [r.strip().lower() for r in os.environ.get("OIDC_ALLOWED", "").split(",") if r.strip()]
+    return bool(email) and any(email == r or (r.startswith("@") and email.endswith(r)) for r in rules)
+
+
+async def _oidc_config() -> dict:
+    issuer = os.environ["OIDC_ISSUER"].rstrip("/")
+    if _oidc_discovery.get("issuer") != issuer:
+        resp = await _http().get(issuer + "/.well-known/openid-configuration", timeout=10.0)
+        resp.raise_for_status()
+        _oidc_discovery.clear()
+        _oidc_discovery.update({**resp.json(), "issuer": issuer})
+    return _oidc_discovery
+
+
+def _sso_fail(message: str):
+    return RedirectResponse(_public_origin() + "/#sso_error=" + urlencode({"m": message})[2:], status_code=302)
+
+
+@api_router.get("/auth/sso")
+async def sso_info():
+    return {"enabled": _sso_enabled(), "label": os.environ.get("OIDC_LABEL", "Single sign-on")}
+
+
+@api_router.get("/auth/sso/start")
+async def sso_start(request: Request):
+    if not _sso_enabled():
+        raise HTTPException(404, "Single sign-on is not configured.")
+    if _rate_limited("sso:" + _client_ip(request), 30):
+        raise HTTPException(429, "Too many sign-in attempts. Try again shortly.")
+    try:
+        cfg = await _oidc_config()
+    except (httpx.HTTPError, ValueError):
+        return _sso_fail("Sign-in provider unreachable.")
+    now = time.time()
+    for key in [k for k, v in _sso_pending.items() if v["exp"] < now]:
+        _sso_pending.pop(key, None)
+    state, verifier = secrets.token_urlsafe(24), secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    _sso_pending[state] = {"verifier": verifier, "exp": now + 600}
+    params = {
+        "response_type": "code", "client_id": os.environ["OIDC_CLIENT_ID"],
+        "redirect_uri": _public_origin() + "/api/auth/sso/callback", "scope": "openid email profile",
+        "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
+        "nonce": secrets.token_urlsafe(16), "prompt": "select_account",
+    }
+    return RedirectResponse(cfg["authorization_endpoint"] + "?" + urlencode(params), status_code=302)
+
+
+@api_router.get("/auth/sso/callback")
+async def sso_callback(code: str = "", state: str = "", error: str = ""):
+    if not _sso_enabled():
+        raise HTTPException(404, "Single sign-on is not configured.")
+    pending = _sso_pending.pop(state, None)
+    if error or not code or not pending or pending["exp"] < time.time():
+        return _sso_fail("Sign-in was cancelled or expired. Try again.")
+    try:
+        cfg = await _oidc_config()
+        token_resp = await _http().post(cfg["token_endpoint"], data={
+            "grant_type": "authorization_code", "code": code,
+            "redirect_uri": _public_origin() + "/api/auth/sso/callback",
+            "client_id": os.environ["OIDC_CLIENT_ID"], "client_secret": os.environ["OIDC_CLIENT_SECRET"],
+            "code_verifier": pending["verifier"],
+        }, headers={"Accept": "application/json"}, timeout=15.0)
+        if token_resp.status_code >= 400:
+            logger.warning("SSO token exchange failed %s", token_resp.status_code)
+            return _sso_fail("Sign-in failed. Try again.")
+        access = token_resp.json().get("access_token")
+        info = (await _http().get(cfg["userinfo_endpoint"], headers={"Authorization": f"Bearer {access}"}, timeout=10.0)).json()
+    except (httpx.HTTPError, ValueError, KeyError):
+        return _sso_fail("Sign-in provider unreachable.")
+    email = info.get("email") or info.get("preferred_username") or ""
+    if info.get("email_verified") is False or not _sso_allowed(email):
+        logger.info("SSO refused for an account outside OIDC_ALLOWED")
+        return _sso_fail("This account is not allowed to operate TranslateBox.")
+    session = secrets.token_urlsafe(32)
+    SSO_SESSIONS[session] = {"email": email.lower(), "exp": time.time() + SSO_SESSION_TTL}
+    logger.info("SSO operator signed in")
+    return RedirectResponse(_public_origin() + "/#sso=" + session, status_code=302)
 
 
 @api_router.get("/health")
@@ -296,6 +434,8 @@ async def create_realtime_session(req: SessionRequest, request: Request):
             detail="The translation service is not configured on the server.",
         )
 
+    if USAGE_CAP_MINUTES and _month_minutes() >= USAGE_CAP_MINUTES:
+        raise HTTPException(402, "The monthly translation limit set by the administrator is reached. Raise USAGE_CAP_MINUTES to continue.")
     target_language = _resolve_target_language(req.target_language)
     session_config = _build_session_config(target_language, req.noise_reduction)
     headers = _openai_headers(api_key)
@@ -454,6 +594,30 @@ MAX_LANGUAGES = int(os.environ.get("MAX_LANGUAGES_PER_EVENT", "5"))
 # channel (one OpenAI session) and its own listeners.
 ROOMS = {}    # "eid:lang" -> {"operator", "listeners", "audio_off", "init", "format", "rate", "meta"}
 AUDIO_FORMATS = {"pcm16": 16000, "webm": None}
+SOURCE_LANG = "src"  # floor audio for human interpreters' booths
+STORE = KVStore(EVENTS.connection)
+LOGO_RE = re.compile(r"^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$")
+
+
+def _month_key() -> str:
+    return "usage:" + datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def _month_minutes() -> float:
+    return sum((STORE.get(_month_key(), {}) or {}).values()) / 60
+
+
+def _record_usage(eid: str, lang: str, seconds: float):
+    """Count broadcast time of AI channels (an estimate of OpenAI session time)."""
+    if seconds <= 0:
+        return
+    month = STORE.get(_month_key(), {}) or {}
+    month[lang] = round(month.get(lang, 0) + seconds, 1)
+    STORE.set(_month_key(), month)
+    if eid in EVENTS:
+        usage = dict(EVENTS[eid].get("usage") or {})
+        usage[lang] = round(usage.get(lang, 0) + seconds, 1)
+        EVENTS[eid] = {**EVENTS[eid], "usage": usage}
 
 
 def _targets(eid) -> list:
@@ -481,7 +645,7 @@ def _clean_meta(raw: dict) -> dict:
     voice = raw.get("voice")
     mode = raw.get("mode")
     return {
-        "mode": mode if mode in ("original", "studio") else "original",
+        "mode": mode if mode in ("original", "studio", "human") else "original",
         "voice": voice[:40] if isinstance(voice, str) else None,
     }
 
@@ -495,8 +659,17 @@ class EventCreate(BaseModel):
     organization: str = Field(default="", max_length=200)
     target_language: str = Field(default="en", max_length=10)
     extra_languages: list[str] = Field(default_factory=list, max_length=10)
+    human_languages: list[str] = Field(default_factory=list, max_length=10)
     pin: str | None = Field(default=None, max_length=64)
     captions: bool = False
+    logo: str | None = Field(default=None, max_length=300000)
+    sponsor: str = Field(default="", max_length=160)
+
+
+def _check_logo(logo):
+    if logo and not LOGO_RE.match(logo):
+        raise HTTPException(400, "The logo must be a PNG, JPEG or WebP image under 220 KB.")
+    return logo or None
 
 
 def _resolve_targets(primary: str, extra: list) -> list:
@@ -527,13 +700,22 @@ async def create_event(body: EventCreate):
         raise HTTPException(429, "Event capacity reached. Try again later.")
     targets = _resolve_targets(body.target_language, body.extra_languages)
     target = targets[0]
+    human = [lang.lower() for lang in body.human_languages if lang.lower() in targets[1:]]
+    logo = _check_logo(body.logo)
     eid = secrets.token_urlsafe(12)
     token = secrets.token_urlsafe(32)
+    interpreter_code = secrets.token_urlsafe(9)
     EVENTS[eid] = {
         "name": body.name or "Live Interpretation",
         "organization": body.organization or "",
         "target": target,
         "targets": targets,
+        "human": human,
+        "interpreter_hash": hashlib.sha256(interpreter_code.encode()).hexdigest(),
+        "logo": logo,
+        "sponsor": body.sponsor.strip(),
+        "summaries": {},
+        "usage": {},
         "operator_token_hash": hashlib.sha256(token.encode()).hexdigest(),
         "pin_hash": hashlib.sha256(body.pin.encode()).hexdigest() if body.pin else None,
         "captions": bool(body.captions),
@@ -541,7 +723,7 @@ async def create_event(body: EventCreate):
     }
     _room(eid)
     logger.info("Event created %s", eid)
-    return JSONResponse({"id": eid, "path": f"/e/{eid}", "operator_token": token, **_public_event(eid)}, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"id": eid, "path": f"/e/{eid}", "operator_token": token, "interpreter_code": interpreter_code, **_public_event(eid)}, headers={"Cache-Control": "no-store"})
 
 
 def _public_event(eid):
@@ -554,7 +736,8 @@ def _public_event(eid):
         channels.append({"lang": lang, "live": bool(room.get("operator")), "listeners": len(room.get("listeners", ()))})
     return {
         "name": ev["name"], "organization": ev["organization"], "target": ev["target"],
-        "targets": _targets(eid), "channels": channels,
+        "targets": _targets(eid), "channels": channels, "human": list(ev.get("human") or []),
+        "logo": ev.get("logo"), "sponsor": ev.get("sponsor", ""), "summaries": dict(ev.get("summaries") or {}),
         "captions": ev["captions"], "pin_protected": ev["pin_hash"] is not None,
         "live": any(c["live"] for c in channels), "listeners": sum(c["listeners"] for c in channels),
         "max_listeners": MAX_LISTENERS,
@@ -566,7 +749,132 @@ def _public_event(eid):
 @api_router.get("/events", dependencies=[Depends(require_operator)])
 async def list_events():
     _prune_events()
-    return {"events": [{"id": eid, **_public_event(eid)} for eid in sorted(EVENTS, key=lambda eid: EVENTS[eid]["created"], reverse=True)]}
+    return {"events": [{"id": eid, **_public_event(eid), "usage": EVENTS[eid].get("usage") or {}} for eid in sorted(EVENTS, key=lambda eid: EVENTS[eid]["created"], reverse=True)]}
+
+
+def _require_event(eid):
+    _prune_events()
+    if eid not in EVENTS:
+        raise HTTPException(404, "Event expired or not found. Create a new event.")
+    return EVENTS[eid]
+
+
+@api_router.post("/events/{eid}/interpreter-code", dependencies=[Depends(require_operator)])
+async def rotate_interpreter_code(eid: str):
+    ev = _require_event(eid)
+    code = secrets.token_urlsafe(9)
+    EVENTS[eid] = {**ev, "interpreter_hash": hashlib.sha256(code.encode()).hexdigest()}
+    return JSONResponse({"interpreter_code": code}, headers={"Cache-Control": "no-store"})
+
+
+class BrandingUpdate(BaseModel):
+    logo: str | None = Field(default=None, max_length=300000)
+    sponsor: str = Field(default="", max_length=160)
+
+
+@api_router.put("/events/{eid}/branding", dependencies=[Depends(require_operator)])
+async def update_branding(eid: str, body: BrandingUpdate):
+    ev = _require_event(eid)
+    EVENTS[eid] = {**ev, "logo": _check_logo(body.logo), "sponsor": body.sponsor.strip()}
+    return {"id": eid, **_public_event(eid)}
+
+
+class PublishedSummary(BaseModel):
+    lang: str = Field(max_length=10)
+    text: str = Field(min_length=1, max_length=20000)
+
+
+@api_router.put("/events/{eid}/summaries", dependencies=[Depends(require_operator)])
+async def publish_summary(eid: str, body: PublishedSummary):
+    """Opt-in: the operator publishes a summary that listeners can read on the event page."""
+    ev = _require_event(eid)
+    lang = body.lang.lower()
+    if lang not in LANGUAGE_NAMES:
+        raise HTTPException(400, "Unknown summary language.")
+    summaries = {**(ev.get("summaries") or {}), lang: body.text}
+    EVENTS[eid] = {**ev, "summaries": summaries}
+    return {"summaries": summaries}
+
+
+@api_router.delete("/events/{eid}/summaries/{lang}", dependencies=[Depends(require_operator)])
+async def unpublish_summary(eid: str, lang: str):
+    ev = _require_event(eid)
+    summaries = {k: v for k, v in (ev.get("summaries") or {}).items() if k != lang.lower()}
+    EVENTS[eid] = {**ev, "summaries": summaries}
+    return {"summaries": summaries}
+
+
+@api_router.get("/usage", dependencies=[Depends(require_operator)])
+async def usage():
+    month = STORE.get(_month_key(), {}) or {}
+    return {
+        "month": _month_key().split(":", 1)[1],
+        "minutes_by_language": {k: round(v / 60, 1) for k, v in month.items()},
+        "total_minutes": round(sum(month.values()) / 60, 1),
+        "cap_minutes": USAGE_CAP_MINUTES or None,
+    }
+
+
+class GlossaryEntry(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    text: str = Field(default="", max_length=4000)
+
+
+class Library(BaseModel):
+    glossaries: list[GlossaryEntry] = Field(default_factory=list, max_length=50)
+
+
+@api_router.get("/library", dependencies=[Depends(require_operator)])
+async def get_library():
+    return STORE.get("library", {"glossaries": []})
+
+
+@api_router.put("/library", dependencies=[Depends(require_operator)])
+async def put_library(body: Library):
+    data = body.model_dump()
+    STORE.set("library", data)
+    return data
+
+
+class CaptionRelayRequest(BaseModel):
+    provider: Literal["zoom", "teams"]
+    url: str = Field(min_length=10, max_length=2000)
+    text: str = Field(min_length=1, max_length=500)
+    lang: str = Field(default="en-US", max_length=16)
+    seq: int = Field(default=0, ge=0)
+
+
+RELAY_HOSTS = {
+    "zoom": re.compile(r"^([a-z0-9-]+\.)*zoom\.us$"),
+    "teams": re.compile(r"^api\.captions\.office\.microsoft\.com$"),
+}
+
+
+def _relay_url(req: CaptionRelayRequest) -> str:
+    parts = urlsplit(req.url.strip())
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or not RELAY_HOSTS[req.provider].match(host) or parts.port not in (None, 443):
+        raise HTTPException(400, f"This is not a {req.provider.title()} caption link.")
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k not in ("seq", "lang")]
+    if req.provider == "zoom":
+        query += [("seq", str(req.seq)), ("lang", req.lang)]
+    else:
+        query += [("lang", req.lang.lower())]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
+
+
+@api_router.post("/caption-relay", dependencies=[Depends(require_operator)])
+async def caption_relay(req: CaptionRelayRequest, request: Request):
+    """Forward one caption line to a Zoom (API token) or Teams (CART) meeting."""
+    if _rate_limited("relay:" + _client_ip(request), 900):
+        raise HTTPException(429, "Too many caption lines. Slow down.")
+    url = _relay_url(req)
+    try:
+        resp = await _http().post(url, content=req.text.encode("utf-8"), headers={"Content-Type": "text/plain; charset=utf-8"}, timeout=10.0)
+    except httpx.RequestError as exc:
+        logger.warning("Caption relay network error: %s", type(exc).__name__)
+        raise HTTPException(502, "The meeting caption service could not be reached.")
+    return {"ok": resp.status_code < 300, "status": resp.status_code}
 
 
 @api_router.post("/events/{eid}/resume", dependencies=[Depends(require_operator)])
@@ -641,7 +949,8 @@ async def _fanout(room, method, data):
     await asyncio.gather(*(deliver(listener) for listener in targets))
 
 
-async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str = "pcm16", rate: int = 16000):
+async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str = "pcm16", rate: int = 16000, counts_usage: bool = True):
+    started = time.monotonic()
     room["operator"] = websocket
     room["init"] = None
     room["format"] = audio_format
@@ -684,15 +993,20 @@ async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str 
     finally:
         room["operator"] = None
         room["init"] = None
+        if counts_usage and room["lang"] != SOURCE_LANG:
+            try:
+                _record_usage(eid, room["lang"], time.monotonic() - started)
+            except Exception:  # usage is informative; never break teardown
+                logger.exception("Could not record usage")
         with anyio.CancelScope(shield=True):
             await _broadcast_status(room, False)
 
 
-async def _run_listener(websocket: WebSocket, eid: str, room, pin, wants_audio=True):
-    if not _check_pin(eid, pin):
+async def _run_listener(websocket: WebSocket, eid: str, room, pin, wants_audio=True, booth=False):
+    if not booth and not _check_pin(eid, pin):
         await websocket.close(code=4401)
         return
-    if _event_listener_count(eid) >= MAX_LISTENERS:
+    if not booth and _event_listener_count(eid) >= MAX_LISTENERS:
         await websocket.close(code=4429)
         return
     room["listeners"].add(websocket)
@@ -731,7 +1045,7 @@ async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener", l
         await websocket.close(code=4429)
         return
     lang = (lang or _targets(eid)[0]).lower()
-    if lang not in _targets(eid):
+    if lang not in _targets(eid) and lang != SOURCE_LANG:
         await websocket.close(code=4404)
         return
     room = _room(eid, lang)
@@ -746,6 +1060,32 @@ async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener", l
         return
     if eid not in EVENTS:
         await websocket.close(code=4404)
+        return
+    def _code_ok(value):
+        return isinstance(value, str) and bool(EVENTS[eid].get("interpreter_hash")) and secrets.compare_digest(
+            hashlib.sha256(value.encode()).hexdigest(), EVENTS[eid]["interpreter_hash"])
+
+    if role in ("interpreter", "booth"):
+        if not _code_ok(auth.get("code")):
+            await websocket.close(code=4401)
+            return
+        if role == "booth":
+            if lang != SOURCE_LANG:
+                await websocket.close(code=4400)
+                return
+            await _run_listener(websocket, eid, room, None, booth=True)
+            return
+        if lang not in (EVENTS[eid].get("human") or []):
+            await websocket.close(code=4403)
+            return
+        if room["operator"] is not None:
+            await websocket.close(code=4409)
+            return
+        room["operator"] = websocket
+        await _run_operator(websocket, eid, room, "pcm16", 16000, counts_usage=False)
+        return
+    if lang == SOURCE_LANG and role != "operator":
+        await websocket.close(code=4403)
         return
     if role == "operator":
         token = auth.get("token", "")

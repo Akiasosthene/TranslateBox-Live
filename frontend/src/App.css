@@ -83,3 +83,6 @@
 .tb-brand:focus-visible { outline:3px solid #38bdf8; outline-offset:5px; }
 .tb-console > header { height:auto; min-height:60px; padding-top:8px; padding-bottom:8px; }
 @media(max-width:380px) { .tb-console > header .tb-brand-compact { font-size:18px; } }
+.tb-login .tb-sso { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:10px; padding:13px 18px; border-radius:12px; border:1.5px solid #c7d2e2; color:#092455; font-weight:700; font-size:13px; background:#fff; transition:border-color .2s, background .2s; }
+.tb-login .tb-sso:hover { border-color:#2bb4f4; background:#f2faff; }
+.tb-login .tb-sso:focus-visible { outline:2px solid #2bb4f4; outline-offset:2px; }

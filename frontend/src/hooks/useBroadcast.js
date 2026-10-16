@@ -2,6 +2,7 @@ import { operatorFetch, responseError } from "../lib/api";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { OperatorBroadcaster, WS_BASE } from "../lib/broadcast";
 import { ExtraChannel } from "../lib/extraChannel";
+import { SourceChannel } from "../lib/sourceChannel";
 import { usePersistentState } from "./usePersistentState";
 
 // Broadcast: the operator's translated program audio is fanned out to many
@@ -11,6 +12,7 @@ import { usePersistentState } from "./usePersistentState";
 export function useBroadcast({
   API, engineRef, targetLang, profile, start, stop, setError, targetText, active, setTargetLang,
   voiceMeta, extraLangs, setExtraLangs, channelStartArgs, channelVoiceConfig, keepTranscripts,
+  humanLangs = [], setHumanLangs = () => {}, onExtraSegment = () => {}, micMuted = false,
 }) {
   const [savedEvents, setSavedEvents] = useState([]);
   const [catalogError, setCatalogError] = useState("");
@@ -34,6 +36,11 @@ export function useBroadcast({
   voiceCfgRef.current = channelVoiceConfig;
   const startArgsRef = useRef(channelStartArgs);
   startArgsRef.current = channelStartArgs;
+  const sourceRef = useRef(null);
+  const segmentRef = useRef(onExtraSegment);
+  segmentRef.current = onExtraSegment;
+  const micMutedRef = useRef(micMuted);
+  micMutedRef.current = micMuted;
   const captionsRef = useRef(captionsToListeners);
   captionsRef.current = captionsToListeners;
 
@@ -48,6 +55,8 @@ export function useBroadcast({
   }, []);
 
   const stopExtras = useCallback(() => {
+    sourceRef.current?.stop();
+    sourceRef.current = null;
     for (const ch of extrasRef.current.values()) {
       ch.stop();
       if (keepRef.current && !ch.recorder.empty) archiveRef.current.set(ch.lang, ch.recorder);
@@ -59,18 +68,28 @@ export function useBroadcast({
 
   const startExtras = useCallback(async (event) => {
     stopExtras();
-    const langs = (event.targets || [event.target]).slice(1);
-    if (!langs.length) return;
+    const human = new Set(event.human || []);
+    const langs = (event.targets || [event.target]).slice(1).filter((l) => !human.has(l));
     const generation = generationRef.current;
     archiveRef.current.clear();
+    if (human.size) {
+      // Human interpreters need the untranslated floor audio.
+      const src = new SourceChannel({ onError: setError });
+      sourceRef.current = src;
+      const args = startArgsRef.current(event.target);
+      src.start({ event, deviceId: args.deviceId, ambient: args.ambient })
+        .then(() => src.setMuted(micMutedRef.current))
+        .catch((e) => setError("Interpreter booth feed could not start: " + e.message));
+    }
+    if (!langs.length) return;
     for (const lang of langs) {
-      const ch = new ExtraChannel({ apiBase: API, lang, onChange: snapshotChannels, onError: setError });
+      const ch = new ExtraChannel({ apiBase: API, lang, onChange: snapshotChannels, onError: setError, onSegment: (l, text) => segmentRef.current(l, text) });
       ch.configure({ ...(voiceCfgRef.current || {}), captions: captionsRef.current });
       extrasRef.current.set(lang, ch);
     }
     snapshotChannels();
     const list = [...extrasRef.current.values()];
-    const results = await Promise.allSettled(list.map((ch) => ch.start({ event, ...startArgsRef.current(ch.lang) })));
+    const results = await Promise.allSettled(list.map((ch) => ch.start({ event, ...startArgsRef.current(ch.lang) }).then(() => ch.setInputMuted(micMutedRef.current))));
     if (generation !== generationRef.current) { stopExtras(); return; }
     results.forEach((r, i) => {
       if (r.status === "rejected" && r.reason?.message !== "cancelled") {
@@ -129,11 +148,46 @@ export function useBroadcast({
     setEventInfo(event);
     setTargetLang(event.target);
     setExtraLangs((event.targets || [event.target]).slice(1));
+    setHumanLangs(event.human || []);
     setCaptionsToListeners(event.captions);
     setListeners(event.listeners);
     await refreshEvents();
     return event;
-  }, [API, active, broadcasting, refreshEvents, setTargetLang, setExtraLangs, setCaptionsToListeners]);
+  }, [API, active, broadcasting, refreshEvents, setTargetLang, setExtraLangs, setHumanLangs, setCaptionsToListeners]);
+
+  // Mic gate for push-to-talk: every channel captures the same microphone.
+  const setChannelsMicMuted = useCallback((muted) => {
+    for (const ch of extrasRef.current.values()) ch.setInputMuted(muted);
+    sourceRef.current?.setMuted(muted);
+  }, []);
+
+  const eventRequest = useCallback(async (path, options, fallback) => {
+    if (!eventInfo) throw new Error("Create or resume an event first.");
+    const res = await operatorFetch(`${API}/events/${encodeURIComponent(eventInfo.id)}${path}`, options);
+    if (!res.ok) throw new Error(await responseError(res, fallback));
+    return res.json();
+  }, [API, eventInfo]);
+
+  const rotateInterpreterCode = useCallback(async () => {
+    const { interpreter_code } = await eventRequest("/interpreter-code", { method: "POST" }, "Could not create a booth code.");
+    setEventInfo((ev) => ({ ...ev, interpreter_code }));
+    return interpreter_code;
+  }, [eventRequest]);
+
+  const updateBranding = useCallback(async ({ logo, sponsor }) => {
+    const info = await eventRequest("/branding", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ logo: logo || null, sponsor: sponsor || "" }) }, "Could not save the branding.");
+    setEventInfo((ev) => ({ ...ev, logo: info.logo, sponsor: info.sponsor }));
+  }, [eventRequest]);
+
+  const publishSummary = useCallback(async (lang, text) => {
+    const { summaries } = await eventRequest("/summaries", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lang, text }) }, "Could not publish the summary.");
+    setEventInfo((ev) => ({ ...ev, summaries }));
+  }, [eventRequest]);
+
+  const unpublishSummary = useCallback(async (lang) => {
+    const { summaries } = await eventRequest(`/summaries/${encodeURIComponent(lang)}`, { method: "DELETE" }, "Could not remove the summary.");
+    setEventInfo((ev) => ({ ...ev, summaries }));
+  }, [eventRequest]);
 
   const newEvent = useCallback(() => {
     if (active || broadcasting) return;
@@ -149,6 +203,9 @@ export function useBroadcast({
         organization: fields.organization || profile.organization || "",
         target_language: targetLang,
         extra_languages: (extraLangs || []).filter((l) => l !== targetLang),
+        human_languages: (humanLangs || []).filter((l) => (extraLangs || []).includes(l) && l !== targetLang),
+        logo: fields.logo || null,
+        sponsor: fields.sponsor || "",
         pin: fields.pin || null,
         captions: captionsToListeners,
       }),
@@ -158,7 +215,7 @@ export function useBroadcast({
     setEventInfo(info);
     await refreshEvents();
     return info;
-  }, [API, targetLang, extraLangs, captionsToListeners, profile.organization, refreshEvents]);
+  }, [API, targetLang, extraLangs, humanLangs, captionsToListeners, profile.organization, refreshEvents]);
 
   const startEvent = useCallback(async (fields) => {
     setError(null);
@@ -225,6 +282,7 @@ export function useBroadcast({
     createEvent, startEvent, stopEvent, restartBroadcast,
     savedEvents, catalogError, catalogLoading, refreshEvents, resumeEvent, newEvent,
     eventInfo, listeners, primaryListeners, broadcasting, channels, extrasRef, archiveRef,
+    setChannelsMicMuted, rotateInterpreterCode, updateBranding, publishSummary, unpublishSummary,
     captionsToListeners, setCaptionsToListeners,
   };
 }

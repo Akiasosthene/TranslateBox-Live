@@ -5,8 +5,9 @@ export { WS_BASE } from './api';
 // `program` is a ProgramBus (ctx + output node). Listeners play the frames
 // with Web Audio, which works on iPhone/iPad Safari as well as desktop.
 export class OperatorBroadcaster {
-  constructor(wsUrl, { token, onCount = () => {}, onStatus = () => {}, createCapture } = {}) {
-    Object.assign(this, { wsUrl, token, onCount, onStatus, ws: null, capture: null, slowSince: 0 });
+  constructor(wsUrl, { token, auth, onCount = () => {}, onStatus = () => {}, createCapture } = {}) {
+    // `auth` replaces the operator token for interpreters ({ code }).
+    Object.assign(this, { wsUrl, token, auth, onCount, onStatus, ws: null, capture: null, slowSince: 0 });
     this.createCapture = createCapture || ((ctx, node, onFrame) => new PcmCapture(ctx, node, onFrame).init());
   }
 
@@ -21,7 +22,7 @@ export class OperatorBroadcaster {
       let ready = false;
       const fail = (message) => { clearTimeout(timer); this.stop(); this.onStatus({live: false, error: message}); reject(new Error(message)); };
       const timer = setTimeout(() => fail('Broadcast connection timed out'), 10000);
-      ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: this.token, format: 'pcm16', rate: WIRE_RATE }));
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', ...(this.auth || { token: this.token }), format: 'pcm16', rate: WIRE_RATE }));
       ws.onmessage = async ({ data }) => {
         let message;
         try { message = JSON.parse(data); } catch { return; }

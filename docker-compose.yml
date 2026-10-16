@@ -12,6 +12,13 @@ services:
       TTS_RATE_LIMIT_MAX: ${TTS_RATE_LIMIT_MAX:-300}
       OPENAI_SUMMARY_MODEL: ${OPENAI_SUMMARY_MODEL:-gpt-6-luna}
       MAX_LANGUAGES_PER_EVENT: ${MAX_LANGUAGES_PER_EVENT:-5}
+      USAGE_CAP_MINUTES: ${USAGE_CAP_MINUTES:-0}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_ALLOWED: ${OIDC_ALLOWED:-}
+      OIDC_LABEL: ${OIDC_LABEL:-}
       CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS to the exact public origin}
       # Backend is accessible only on the private Compose network.
       FORWARDED_ALLOW_IPS: '*'
@@ -33,6 +40,8 @@ services:
     restart: unless-stopped
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      # Space-separated origins allowed to embed listener pages, e.g. https://www.cvent.com
+      EMBED_ORIGINS: ${EMBED_ORIGINS:-}
     ports:
       - '80:80'
       - '443:443'

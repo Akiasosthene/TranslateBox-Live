@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import QRCode from "qrcode";
 import { Maximize2 } from "lucide-react";
 import { useLocale } from "../context/LocaleContext";
@@ -14,6 +14,10 @@ const RETRY_DELAYS = [1000, 2000, 4000, 8000];
 export default function Screen() {
   const { t } = useLocale();
   const { id } = useParams();
+  const [search] = useSearchParams();
+  const overlay = search.get("overlay") === "1";
+  const light = search.get("theme") === "light";
+  const wantedLang = search.get("lang");
   const [info, setInfo] = useState(null);
   const [err, setErr] = useState("");
   const [lang, setLang] = useState(null);
@@ -31,10 +35,23 @@ export default function Screen() {
 
   useEffect(() => {
     fetch(`${API}/events/${id}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error("Event not found."))))
-      .then((d) => { setInfo(d); setLang((d.targets || [d.target])[0]); setLive(d.live); if (!d.pin_protected) setWanted(true); })
+      .then((d) => {
+        const targets = d.targets || [d.target];
+        setInfo(d); setLang(targets.includes(wantedLang) ? wantedLang : targets[0]); setLive(d.live);
+        if (!d.pin_protected) setWanted(true);
+      })
       .catch((e) => setErr(e.message));
     QRCode.toDataURL(listenUrl, { width: 480, margin: 2 }).then(setQr).catch(() => {});
-  }, [id, listenUrl]);
+  }, [id, listenUrl, wantedLang]);
+
+  // OBS / vMix browser sources need a transparent page.
+  useEffect(() => {
+    if (!overlay) return undefined;
+    const els = [document.documentElement, document.body];
+    const before = els.map((el) => el.style.background);
+    els.forEach((el) => { el.style.background = "transparent"; });
+    return () => els.forEach((el, i) => { el.style.background = before[i]; });
+  }, [overlay]);
 
   const close = useCallback(() => {
     clearTimeout(retryRef.current);
@@ -82,10 +99,26 @@ export default function Screen() {
   const paragraphs = caption.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean).slice(-3);
   const targets = info?.targets || (info?.target ? [info.target] : []);
 
+  if (overlay) {
+    const last = paragraphs.slice(-2);
+    return (
+      <div className="fixed inset-x-0 bottom-0 flex justify-center pb-[6vh] px-[6vw]" data-testid="screen-overlay" aria-live="polite">
+        {last.length > 0 && (
+          <div className="max-w-[1500px] rounded-2xl bg-black/70 px-8 py-5 text-center">
+            {last.map((p, i) => (
+              <p key={`${i}-${p.slice(0, 10)}`} className={`font-semibold leading-snug ${i === last.length - 1 ? "text-white" : "text-white/60"}`}
+                style={{ fontSize: "clamp(28px, 3.2vw, 56px)", textShadow: "0 2px 6px rgba(0,0,0,.8)" }}>{p.slice(-220)}</p>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (err && !info) return <div className="min-h-screen bg-black text-rose-300 grid place-items-center text-2xl">{t(err)}</div>;
 
   return (
-    <div className="tb-screen h-screen bg-[#05070B] text-white flex flex-col overflow-hidden"
+    <div className={`tb-screen h-screen flex flex-col overflow-hidden ${light ? "bg-white text-slate-900" : "bg-[#05070B] text-white"}`}
       style={{ paddingLeft: "max(32px, env(safe-area-inset-left))", paddingRight: "max(32px, env(safe-area-inset-right))" }}>
       <header className="flex items-start justify-between gap-8 pt-8">
         <div className="min-w-0">
@@ -93,8 +126,12 @@ export default function Screen() {
             <span className={`h-3 w-3 rounded-full ${live ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`} />
             {live ? t("Live") : t("Waiting for speaker…")}
           </p>
-          <h1 className="mt-3 text-4xl lg:text-5xl font-extrabold tracking-tight text-balance">{info?.name}</h1>
+          <div className="mt-3 flex items-center gap-5">
+            {info?.logo && <img src={info.logo} alt="" className="max-h-20 max-w-[220px] object-contain" />}
+            <h1 className="text-4xl lg:text-5xl font-extrabold tracking-tight text-balance">{info?.name}</h1>
+          </div>
           {info?.organization && <p className="mt-1 text-xl text-slate-400">{info.organization}</p>}
+          {info?.sponsor && <p className="mt-1 text-base text-slate-500">{info.sponsor}</p>}
           {targets.length > 1 && (
             <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label={t("Caption language")}>
               {targets.map((code) => (
@@ -126,7 +163,7 @@ export default function Screen() {
       ) : (
         <main ref={scrollRef} className="flex-1 min-h-0 overflow-hidden flex flex-col justify-end pb-12 pt-6" aria-live="polite">
           {paragraphs.length ? paragraphs.map((p, i) => (
-            <p key={`${i}-${p.slice(0, 12)}`} className={`font-semibold leading-[1.25] text-pretty ${i === paragraphs.length - 1 ? "text-white" : "text-slate-500"}`}
+            <p key={`${i}-${p.slice(0, 12)}`} className={`font-semibold leading-[1.25] text-pretty ${i === paragraphs.length - 1 ? (light ? "text-slate-900" : "text-white") : (light ? "text-slate-400" : "text-slate-500")}`}
               style={{ fontSize: "clamp(32px, 4.4vw, 72px)", marginTop: "0.4em" }}>{p.slice(-420)}</p>
           )) : (
             <p className="text-3xl text-slate-500">{connected ? t("Captions appear here when the organizer enables them.") : t("Connecting…")}</p>

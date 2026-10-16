@@ -29,3 +29,24 @@ class EventStore(dict):
 
     def close(self):
         self.connection.close()
+
+
+class KVStore:
+    """Small JSON key/value table in the same SQLite file (usage, shared library)."""
+
+    def __init__(self, connection):
+        self.connection = connection
+        with self.connection:
+            self.connection.execute('CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, data TEXT NOT NULL)')
+
+    def get(self, key, default=None):
+        row = self.connection.execute('SELECT data FROM kv WHERE key = ?', (key,)).fetchone()
+        return json.loads(row[0]) if row else default
+
+    def set(self, key, value):
+        with self.connection:
+            self.connection.execute('INSERT OR REPLACE INTO kv VALUES (?, ?)', (key, json.dumps(value)))
+
+    def delete_prefix(self, prefix):
+        with self.connection:
+            self.connection.execute('DELETE FROM kv WHERE key LIKE ?', (prefix.replace('%', '') + '%',))

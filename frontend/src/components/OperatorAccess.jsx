@@ -1,8 +1,8 @@
 import { BrandLogo } from './BrandLogo';
 import { InterfaceLanguage } from './InterfaceLanguage';
 import { useLocale } from '../context/LocaleContext';
-import React, { useState } from 'react';
-import { ArrowRight, AudioLines, Headphones, Languages, Radio, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ArrowRight, AudioLines, Headphones, Languages, Radio, ShieldCheck, KeyRound } from 'lucide-react';
 import { API, setOperatorToken } from '../lib/api';
 
 export default function OperatorAccess({ children }) {
@@ -11,6 +11,22 @@ export default function OperatorAccess({ children }) {
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sso, setSso] = useState(null);
+  useEffect(() => {
+    fetch(`${API}/auth/sso`).then((r) => (r.ok ? r.json() : null)).then((d) => setSso(d?.enabled ? d : null)).catch(() => {});
+    // Return from single sign-on: the session token arrives in the URL fragment.
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const session = hash.get('sso');
+    const failure = hash.get('sso_error') ? (decodeURIComponent(hash.get('sso_error')).replace(/^m=/, '') || 'Sign-in failed.') : '';
+    if (session || failure) history.replaceState(null, '', window.location.pathname);
+    if (failure) setError(failure);
+    if (!session) return;
+    setBusy(true);
+    fetch(`${API}/operator`, { headers: { Authorization: `Bearer ${session}` } })
+      .then((r) => { if (!r.ok) throw new Error(t("Sign-in expired. Try again.")); setOperatorToken(session); setReady(true); })
+      .catch((e) => setError(e.message))
+      .finally(() => setBusy(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   async function login(event) {
     event.preventDefault();
     setBusy(true); setError('');
@@ -51,6 +67,7 @@ export default function OperatorAccess({ children }) {
           <label htmlFor="operator-token">{t("Code d’accès opérateur")}</label>
           <input id="operator-token" type="password" autoComplete="current-password" required value={token} onChange={e => setToken(e.target.value)} placeholder={t("Votre code confidentiel")} />
           <button disabled={busy} className="tb-primary">{busy ? t("Connexion…") : t("Ouvrir ma console")}<ArrowRight size={18} /></button>
+          {sso && <a className="tb-sso" data-testid="sso-button" href={`${API}/auth/sso/start`}><KeyRound size={17} />{t("Sign in with")} {sso.label}</a>}
           {error && <p role="alert" className="tb-login-error">{t(error)}</p>}
           <small><ShieldCheck size={15} />{t("Auditeur ? Utilisez le lien ou le QR code de votre événement.")}</small>
         </form>
