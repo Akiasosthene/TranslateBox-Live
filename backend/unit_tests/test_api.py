@@ -239,3 +239,68 @@ def test_noise_reduction_forwarded_to_openai(client, monkeypatch, mode):
 
 def test_invalid_noise_reduction_rejected(client):
     assert client.post("/api/realtime-session", headers=AUTH, json={"noise_reduction": "invalid"}).status_code == 422
+
+
+def _mock_speech(monkeypatch, handler):
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(server, '_http', lambda: client)
+    return client
+
+
+def test_studio_voice_streams_pcm_with_style(client, monkeypatch):
+    seen = {}
+
+    def handler(request):
+        seen['url'] = str(request.url)
+        seen['body'] = request.read()
+        return httpx.Response(200, content=b'\x01\x00' * 300)
+
+    _mock_speech(monkeypatch, handler)
+    response = client.post('/api/tts', headers=AUTH, json={'text': 'Hello everyone.', 'voice': 'Marin', 'style': 'Calm'})
+    assert response.status_code == 200
+    assert response.content == b'\x01\x00' * 300
+    assert response.headers['cache-control'] == 'no-store'
+    assert seen['url'] == server.OPENAI_SPEECH_URL
+    import json as _json
+    body = _json.loads(seen['body'])
+    assert body == {'model': server.TTS_MODEL, 'voice': 'marin', 'input': 'Hello everyone.', 'response_format': 'pcm', 'instructions': 'Calm'}
+
+
+def test_studio_voice_requires_operator_and_valid_voice(client, monkeypatch):
+    _mock_speech(monkeypatch, lambda request: httpx.Response(200, content=b''))
+    assert client.post('/api/tts', json={'text': 'Hi', 'voice': 'marin'}).status_code == 401
+    assert client.post('/api/tts', headers=AUTH, json={'text': 'Hi', 'voice': 'robot'}).status_code == 400
+    assert client.post('/api/tts', headers=AUTH, json={'text': 'x' * 1201, 'voice': 'marin'}).status_code == 422
+
+
+def test_studio_voice_upstream_errors_are_generic(client, monkeypatch):
+    _mock_speech(monkeypatch, lambda request: httpx.Response(429, json={'error': {'code': 'insufficient_quota', 'message': 'sk-secret'}}))
+    response = client.post('/api/tts', headers=AUTH, json={'text': 'Hi there', 'voice': 'cedar'})
+    assert response.status_code == 402
+    assert 'sk-secret' not in response.text
+
+
+def test_pcm_broadcast_has_no_header_cache_and_relays_voice_meta(client):
+    ev = event(client)
+    url = f"/api/ws/{ev['id']}"
+    with client.websocket_connect(url + '?role=operator') as op:
+        op.send_json({'token': ev['operator_token'], 'format': 'pcm16', 'rate': 16000})
+        assert op.receive_json()['type'] == 'ready'
+        op.send_json({'type': 'meta', 'mode': 'studio', 'voice': 'Marin', 'extra': 'ignored'})
+        op.send_bytes(b'\x00\x01' * 640)
+        with client.websocket_connect(url) as late:
+            late.send_json({})
+            status = late.receive_json()
+            assert status['format'] == 'pcm16' and status['rate'] == 16000
+            assert status['meta'] == {'mode': 'studio', 'voice': 'Marin'}
+            op.send_bytes(b'\x02\x03' * 640)
+            assert late.receive_bytes() == b'\x02\x03' * 640  # no stale frame replayed
+
+
+def test_unknown_audio_format_rejected(client):
+    ev = event(client)
+    with client.websocket_connect(f"/api/ws/{ev['id']}?role=operator") as op:
+        op.send_json({'token': ev['operator_token'], 'format': 'mp3'})
+        with pytest.raises(WebSocketDisconnect) as error:
+            op.receive_json()
+        assert error.value.code == 4400

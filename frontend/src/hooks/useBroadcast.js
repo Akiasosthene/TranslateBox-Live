@@ -6,7 +6,7 @@ import { usePersistentState } from "./usePersistentState";
 // V1 broadcast: ONE operator captures the translated audio stream and fans it
 // out to many listeners through the backend WebSocket hub. Listeners never
 // touch OpenAI. This hook owns all event/broadcast state for the operator.
-export function useBroadcast({ API, engineRef, targetLang, profile, start, stop, setError, targetText, active, setTargetLang }) {
+export function useBroadcast({ API, engineRef, targetLang, profile, start, stop, setError, targetText, active, setTargetLang, voiceMeta }) {
   const [savedEvents, setSavedEvents] = useState([]);
   const [catalogError, setCatalogError] = useState("");
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -15,26 +15,28 @@ export function useBroadcast({ API, engineRef, targetLang, profile, start, stop,
   const [broadcasting, setBroadcasting] = useState(false);
   const [captionsToListeners, setCaptionsToListeners] = usePersistentState("tbl-listener-captions", false);
   const broadcasterRef = useRef(null);
-  const streamRef = useRef(null);
   const generationRef = useRef(0);
+  const voiceMetaRef = useRef(voiceMeta);
+  voiceMetaRef.current = voiceMeta;
 
   const _attach = useCallback(async (event) => {
     const generation = ++generationRef.current;
-    const stream = engineRef.current.audioEl?.srcObject;
-    if (!stream) throw new Error("Translated audio is not available yet. Start translation and retry.");
+    const engine = engineRef.current;
+    await engine.programReady;
+    const program = engine.program;
+    if (!program?.ctx || !program.output) throw new Error("Translated audio is not available yet. Start translation and retry.");
     const b = new OperatorBroadcaster(`${WS_BASE}/api/ws/${event.id}?role=operator`, { token: event.operator_token, onCount: setListeners, onStatus: (status) => { setBroadcasting(false); setListeners(0); if (status.error) setError(status.error); } });
     broadcasterRef.current?.stop();
     broadcasterRef.current = b;
-    await b.start(stream);
+    await b.start(program);
     if (generation !== generationRef.current) { b.stop(); return false; }
-    streamRef.current = stream;
+    b.sendMeta(voiceMetaRef.current || {});
     setBroadcasting(true);
     return true;
   }, [engineRef, setError]);
 
   const _detach = useCallback(() => {
     generationRef.current += 1;
-    streamRef.current = null;
     if (broadcasterRef.current) { broadcasterRef.current.stop(); broadcasterRef.current = null; }
     setBroadcasting(false);
   }, []);
@@ -97,7 +99,7 @@ export function useBroadcast({ API, engineRef, targetLang, profile, start, stop,
     if (!(await start())) return ev;
     const generation = generationRef.current;
     for (let i = 0; i < 25; i++) {
-      if (engineRef.current.audioEl?.srcObject) break;
+      if (engineRef.current.program?.hasSource) break;
       await new Promise((r) => setTimeout(r, 200));
     }
     if (!engineRef.current.active || generation !== generationRef.current) return ev;
@@ -130,17 +132,13 @@ export function useBroadcast({ API, engineRef, targetLang, profile, start, stop,
     if (!active) _detach();
   }, [active, _detach]);
 
+  // Reconnections to OpenAI swap the source inside the program bus, so the
+  // broadcast keeps running without re-attaching. Voice changes reach
+  // listeners as metadata (AI voice disclosure).
+  const metaKey = JSON.stringify(voiceMeta || {});
   useEffect(() => {
-    if (!broadcasting || !eventInfo) return;
-    const timer = setInterval(() => {
-      const stream = engineRef.current.audioEl?.srcObject;
-      if (stream && stream !== streamRef.current) {
-        streamRef.current = stream;
-        _attach(eventInfo).catch(e => { _detach(); setError(e.message); });
-      }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [broadcasting, eventInfo, engineRef, _attach, _detach, setError]);
+    if (broadcasting && broadcasterRef.current) broadcasterRef.current.sendMeta(JSON.parse(metaKey));
+  }, [metaKey, broadcasting]);
 
   useEffect(() => () => { generationRef.current += 1; broadcasterRef.current?.stop(); }, []);
 

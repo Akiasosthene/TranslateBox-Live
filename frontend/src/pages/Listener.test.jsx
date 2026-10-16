@@ -2,90 +2,104 @@ import React from 'react';
 import { beforeEach, afterEach, test, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+
+const players = [];
+vi.mock('../lib/pcmAudio', () => ({
+  WIRE_RATE: 16000,
+  createAudioContext: vi.fn(() => ({ resume: vi.fn().mockResolvedValue(), close: vi.fn().mockResolvedValue() })),
+  PcmPlayer: class {
+    constructor(_ctx, opts) { this.opts = opts; this.push = vi.fn(); this.clear = vi.fn(); this.setPaused = vi.fn(); this.setVolume = vi.fn(); this.dispose = vi.fn(); players.push(this); }
+    async init() { return this; }
+  },
+}));
+
 import Listener from './Listener';
+
 let sockets;
 beforeEach(() => {
-  sockets = [];
+  sockets = []; players.length = 0;
   global.fetch = vi.fn().mockResolvedValue({ok: true, json: async () => ({name: 'Test event', target: 'fr', pin_protected: false, live: true})});
-  global.MediaSource = class { static isTypeSupported() { return true; } addEventListener() {} };
   global.WebSocket = class { constructor() { sockets.push(this); } close = vi.fn(); send = vi.fn(); };
-  URL.createObjectURL = vi.fn().mockReturnValue('blob:test');
-  URL.revokeObjectURL = vi.fn();
-  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
-test('reconnects after the first connection drops and stop cancels retry', async () => {
-  render(<MemoryRouter initialEntries={['/e/test']}><Routes><Route path="/e/:id" element={<Listener/>}/></Routes></MemoryRouter>);
+
+const renderPage = () => render(<MemoryRouter initialEntries={['/e/test']}><Routes><Route path="/e/:id" element={<Listener/>}/></Routes></MemoryRouter>);
+const listen = async () => { await act(async () => { fireEvent.click(screen.getByText('LISTEN')); }); };
+
+test('plays PCM frames through the jitter-buffered player', async () => {
+  renderPage();
   await screen.findByText('Test event');
-  expect(screen.getByText('Français', {selector: 'span'})).toBeTruthy();
-  vi.useFakeTimers();
-  fireEvent.click(screen.getByText('LISTEN'));
-  expect(sockets.length).toBe(1);
+  expect(screen.getAllByText('Français').length).toBeGreaterThan(0);
+  await listen();
+  expect(players).toHaveLength(1);
+  expect(players[0].opts).toMatchObject({ inRate: 16000, targetMs: 350, maxMs: 2500 });
   act(() => sockets[0].onopen());
   expect(sockets[0].send).toHaveBeenCalledWith(JSON.stringify({type: 'auth', pin: null}));
+  act(() => sockets[0].onmessage({data: JSON.stringify({type: 'status', live: true, format: 'pcm16', rate: 16000, meta: {mode: 'studio', voice: 'Marin'}})}));
+  const frame = new ArrayBuffer(1280);
+  act(() => sockets[0].onmessage({data: frame}));
+  expect(players[0].push).toHaveBeenCalledWith(frame);
+  expect(screen.getByTestId('listener-ai-voice').textContent).toContain('Marin');
+});
+
+test('reconnects with backoff and stop cancels retry', async () => {
+  renderPage();
+  await screen.findByText('Test event');
+  vi.useFakeTimers();
+  await listen();
+  expect(sockets.length).toBe(1);
   act(() => sockets[0].onclose({code: 1006}));
-  act(() => vi.advanceTimersByTime(1500));
+  act(() => vi.advanceTimersByTime(1000));
   expect(sockets.length).toBe(2);
   act(() => sockets[1].onclose({code: 1006}));
-  fireEvent.click(screen.getByText('Stop'));
-  act(() => vi.advanceTimersByTime(3000));
+  act(() => vi.advanceTimersByTime(1500));
   expect(sockets.length).toBe(2);
-  expect(URL.revokeObjectURL).toHaveBeenCalled();
-});
-test('unsupported audio is explained without opening a socket', async () => {
-  MediaSource.isTypeSupported = () => false;
-  render(<MemoryRouter initialEntries={['/e/test']}><Routes><Route path="/e/:id" element={<Listener/>}/></Routes></MemoryRouter>);
-  await screen.findByText('Test event');
-  fireEvent.click(screen.getByText('LISTEN'));
-  expect(screen.getByText(/Your browser cannot play/)).toBeTruthy();
-  expect(sockets.length).toBe(0);
+  act(() => vi.advanceTimersByTime(600));
+  expect(sockets.length).toBe(3);
+  act(() => sockets[2].onclose({code: 1006}));
+  fireEvent.click(screen.getByText('Stop'));
+  act(() => vi.advanceTimersByTime(10000));
+  expect(sockets.length).toBe(3);
+  expect(players[0].dispose).toHaveBeenCalled();
 });
 
-test('buffers on join and never skips words to catch up during playback', async () => {
-  let opened, updated;
-  let ranges = [[0, .25]];
-  const sb = {updating:false, buffered:{get length(){return ranges.length;},start:i=>ranges[i][0],end:i=>ranges[i][1]},addEventListener:(name,fn)=>{if(name==='updateend')updated=fn;},appendBuffer:vi.fn()};
-  global.MediaSource = class {static isTypeSupported(){return true;} addEventListener(name,fn){if(name==='sourceopen')opened=fn;} addSourceBuffer(){return sb;}};
-  const play=vi.spyOn(HTMLMediaElement.prototype,'play').mockResolvedValue();
-  const {container}=render(<MemoryRouter initialEntries={['/e/test']}><Routes><Route path="/e/:id" element={<Listener/>}/></Routes></MemoryRouter>);
-  await screen.findByText('Test event');fireEvent.click(screen.getByText('LISTEN'));
-  act(()=>opened());const audio=container.querySelector('audio');
-  act(()=>updated());expect(play).not.toHaveBeenCalled();
-  ranges=[[0,.25],[20,21.5]];act(()=>updated());
-  expect(audio.currentTime).toBe(20.5);expect(play).toHaveBeenCalledTimes(1);
-  ranges=[[0,.25],[20,29]];audio.currentTime=22;act(()=>updated());
-  expect(audio.currentTime).toBe(22);
-  fireEvent.waiting(audio);ranges=[[20,22.5]];act(()=>updated());expect(play).toHaveBeenCalledTimes(1);
-  ranges=[[20,23.5]];act(()=>updated());expect(play).toHaveBeenCalledTimes(2);expect(audio.currentTime).toBe(22);
-});
-
-test('listener distinguishes buffering, playback and reconnection, and resizes captions without reconnecting', async () => {
-  const {container} = render(<MemoryRouter initialEntries={['/e/test']}><Routes><Route path="/e/:id" element={<Listener/>}/></Routes></MemoryRouter>);
+test('status reflects buffering, playback and reconnection; captions resize without reconnecting', async () => {
+  renderPage();
   await screen.findByText('Test event');
-  fireEvent.click(screen.getByText('LISTEN'));
-  act(() => sockets[0].onmessage({data: JSON.stringify({type:'status', live:true})}));
+  await listen();
+  act(() => sockets[0].onmessage({data: JSON.stringify({type: 'status', live: true, format: 'pcm16'})}));
   expect(screen.getByTestId('listener-status').textContent).toContain('Buffering audio');
-  fireEvent.playing(container.querySelector('audio'));
+  act(() => players[0].opts.onStats({playing: true, level: 0.1}));
   expect(screen.getByTestId('listener-status').textContent).toContain('Translation playing');
-  act(() => sockets[0].onmessage({data: JSON.stringify({type:'caption', text:'Bonjour à tous'})}));
-  fireEvent.change(screen.getByLabelText('Caption size'), {target:{value:'32'}});
+  act(() => sockets[0].onmessage({data: JSON.stringify({type: 'caption', text: 'Bonjour à tous'})}));
+  fireEvent.change(screen.getByLabelText('Caption size'), {target: {value: '32'}});
   expect(screen.getByTestId('listener-caption').style.fontSize).toBe('32px');
   expect(sockets.length).toBe(1);
-  act(() => sockets[0].onclose({code:1006}));
+  act(() => sockets[0].onclose({code: 1006}));
   expect(screen.getByTestId('listener-status').textContent).toContain('Reconnecting');
+  expect(players[0].clear).toHaveBeenCalled();
 });
 
-test('blocked automatic playback exposes a single-tap play retry', async () => {
-  let opened, updated;
-  const sb = {updating:false, buffered:{length:1,start:()=>0,end:()=>2}, addEventListener:(name,fn)=>{if(name==='updateend')updated=fn;},appendBuffer:vi.fn()};
-  global.MediaSource = class {static isTypeSupported(){return true;} addEventListener(name,fn){if(name==='sourceopen')opened=fn;} addSourceBuffer(){return sb;}};
-  const play = vi.spyOn(HTMLMediaElement.prototype,'play').mockRejectedValueOnce(new Error('NotAllowedError')).mockResolvedValue();
-  render(<MemoryRouter initialEntries={['/e/test']}><Routes><Route path="/e/:id" element={<Listener/>}/></Routes></MemoryRouter>);
-  await screen.findByText('Test event'); fireEvent.click(screen.getByText('LISTEN'));
-  await act(async () => {opened(); updated();});
-  expect(screen.getByText('Press play to enable audio.')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', {name:'Play audio'}));
-  expect(play).toHaveBeenCalledTimes(2);
+test('pause stops output and resumes from live', async () => {
+  renderPage();
+  await screen.findByText('Test event');
+  await listen();
+  fireEvent.click(screen.getByRole('button', {name: 'Pause audio'}));
+  expect(players[0].setPaused).toHaveBeenLastCalledWith(true);
+  expect(screen.getByTestId('listener-status').textContent).toContain('Audio paused');
+  fireEvent.click(screen.getByRole('button', {name: 'Play audio'}));
+  expect(players[0].setPaused).toHaveBeenLastCalledWith(false);
   expect(sockets.length).toBe(1);
+});
+
+test('wrong PIN stops retrying and asks for the PIN', async () => {
+  renderPage();
+  await screen.findByText('Test event');
+  vi.useFakeTimers();
+  await listen();
+  act(() => sockets[0].onclose({code: 4401}));
+  act(() => vi.advanceTimersByTime(10000));
+  expect(sockets.length).toBe(1);
+  expect(screen.getByTestId('listener-error').textContent).toContain('Incorrect PIN');
+  expect(screen.getByTestId('listener-pin-input')).toBeTruthy();
 });

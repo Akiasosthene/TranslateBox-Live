@@ -1,5 +1,7 @@
 {$SITE_ADDRESS:localhost} {
-    encode zstd gzip
+    # Never compress streamed studio-voice audio: compression buffers it.
+    @compressible not path /api/tts
+    encode @compressible zstd gzip
     header {
         X-Content-Type-Options nosniff
         X-Frame-Options DENY
@@ -9,6 +11,8 @@
     }
     handle /api/* {
         reverse_proxy backend:8001 {
+            # Stream audio chunks to the operator as soon as they arrive.
+            flush_interval -1
             # Overwrite client-supplied forwarding headers at the only ingress.
             header_up X-Forwarded-For {remote_host}
         }

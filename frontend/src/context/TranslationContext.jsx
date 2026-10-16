@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { TranslationEngine } from "../lib/translationEngine";
 import { MODES, EMPTY_PROFILE, compileInstructions } from "../lib/profiles";
 import { getTarget } from "../lib/languages";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { useBroadcast } from "../hooks/useBroadcast";
+import { SpeechPipeline, STUDIO_VOICES, VOICE_STYLES, applyGlossary, parseGlossary, previewVoice as requestPreview } from "../lib/speech";
 
 import { API } from "../lib/api";
 
@@ -71,6 +72,14 @@ export function TranslationProvider({ children }) {
   const [level, setLevel] = useState({ level: 0, peak: 0 });
   const [testing, setTesting] = useState(false);
   const [metrics, setMetrics] = useState({ latencyMs: null, avgLatencyMs: null, instructionsApplied: false, pcState: "", iceState: "" });
+  // Voice: "original" = realtime translation voice; "studio" = fixed TTS voice.
+  const [voiceMode, setVoiceMode] = usePersistentState("tbl-voice-mode", "original");
+  const [studioVoice, setStudioVoice] = usePersistentState("tbl-voice", "marin");
+  const [voiceStyleKey, setVoiceStyleKey] = usePersistentState("tbl-voice-style", "interpreter");
+  const [customVoiceStyle, setCustomVoiceStyle] = usePersistentState("tbl-voice-style-custom", "");
+  const [glossary, setGlossary] = usePersistentState("tbl-glossary", "");
+  const [previewing, setPreviewing] = useState(false);
+  const speechRef = useRef(null);
 
   const engineRef = useRef(null);
   const audioRef = useRef(null);
@@ -82,6 +91,10 @@ export function TranslationProvider({ children }) {
       handlers: {
         onStatus: (patch) => setStatus((s) => ({ ...s, ...patch })),
         onTranscript: ({ side, delta, segmentBreak }) => {
+          if (side === "target" && speechRef.current) {
+            if (segmentBreak) speechRef.current.endSegment();
+            else speechRef.current.feed(delta);
+          }
           const setter = side === "source" ? setSourceText : setTargetText;
           setter((prev) => {
             if (segmentBreak) {
@@ -99,6 +112,34 @@ export function TranslationProvider({ children }) {
       },
     });
   }
+
+  if (!speechRef.current) {
+    speechRef.current = new SpeechPipeline({
+      apiBase: API,
+      onAudio: (buf) => engineRef.current.program.pushSpeech(buf),
+      onLog: (level, message, data) => setLogs((l) => [...l.slice(-499), { ts: new Date().toISOString(), level, message, data }]),
+      onError: (msg) => setError(msg),
+    });
+  }
+
+  const voiceStyle = voiceStyleKey === "custom" ? customVoiceStyle : (VOICE_STYLES[voiceStyleKey] || VOICE_STYLES.interpreter).text;
+  useEffect(() => {
+    engineRef.current.program.setVoiceMode(voiceMode);
+    speechRef.current.configure({ enabled: voiceMode === "studio", voice: studioVoice, style: voiceStyle, glossary });
+  }, [voiceMode, studioVoice, voiceStyle, glossary]);
+
+  const glossaryRules = useMemo(() => parseGlossary(glossary), [glossary]);
+  const captionText = useMemo(() => applyGlossary(targetText, glossaryRules), [targetText, glossaryRules]);
+  const voiceMeta = useMemo(() => voiceMode === "studio"
+    ? { mode: "studio", voice: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label || studioVoice }
+    : { mode: "original", voice: null }, [voiceMode, studioVoice]);
+
+  const previewVoice = useCallback(async () => {
+    setPreviewing(true);
+    try { await requestPreview(API, { voice: studioVoice, style: voiceStyle, lang: targetLang }); }
+    catch (e) { setError("Voice preview failed: " + e.message); }
+    finally { setTimeout(() => setPreviewing(false), 4000); }
+  }, [studioVoice, voiceStyle, targetLang]);
 
   const setOutputDevice = useCallback((id) => {
     setSelectedOutput(id);
@@ -192,6 +233,7 @@ export function TranslationProvider({ children }) {
   }, [selectedDevice, captureSource, targetLang, modeKey, customInstructions, profile, ambientMode, loadDevices]);
 
   const stop = useCallback(() => {
+    speechRef.current.reset();
     engineRef.current.stop();
     setActive(false);
     stopTimer();
@@ -202,6 +244,7 @@ export function TranslationProvider({ children }) {
   }, [saveTranscripts]);
 
   const restart = useCallback(async () => {
+    speechRef.current.reset();
     engineRef.current.stop();
     setActive(false);
     stopTimer();
@@ -210,6 +253,7 @@ export function TranslationProvider({ children }) {
   }, [start]);
 
   const reset = useCallback(() => {
+    speechRef.current.reset();
     engineRef.current.stop();
     setActive(false);
     stopTimer();
@@ -257,7 +301,7 @@ export function TranslationProvider({ children }) {
     setTesting(false);
   }, []);
 
-  const broadcast = useBroadcast({ API, engineRef, targetLang, profile, start, stop, setError, targetText, active, setTargetLang });
+  const broadcast = useBroadcast({ API, engineRef, targetLang, profile, start, stop, setError, targetText: captionText, active, setTargetLang, voiceMeta });
 
   useEffect(() => () => {
     engineRef.current.stop();
@@ -279,6 +323,8 @@ export function TranslationProvider({ children }) {
     ...broadcast,
     toggleTranslationMute, toggleInputMute, testInput, stopTest,
     clearError: () => setError(null),
+    voiceMode, setVoiceMode, studioVoice, setStudioVoice, voiceStyleKey, setVoiceStyleKey,
+    customVoiceStyle, setCustomVoiceStyle, glossary, setGlossary, previewVoice, previewing,
     MODES,
   };
 

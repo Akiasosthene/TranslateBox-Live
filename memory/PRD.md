@@ -66,3 +66,13 @@ Applied code-review fixes without changing behavior:
   - Frontend: new `hooks/usePersistentState.js` (localStorage-backed prefs) and `hooks/useBroadcast.js` (event/broadcast state); `TranslationContext` slimmed and spreads `useBroadcast`; `Console.jsx` split into `components/console/AudioControlCard.jsx` + `TransportControls.jsx`.
 - Deliberately NOT changed (with rationale): localStorage kept for preferences (no secrets stored → sessionStorage would only hurt UX); WebRTC/WebSocket init effect deps left eslint-disabled (adding deps risks reconnect loops); no further big-bang rewrites on the working realtime path.
 - Verified: backend 31/31 pytest (incl. WS pin gating, listener limit, 4404, operator→listener fan-out); frontend regression iteration_11 = 100% (0 console errors, 0 React key warnings).
+
+## V2 (2026-10) — Voices, universal listening, optimisation
+- Listener audio: PCM 16 kHz mono frames (40 ms) captured by an AudioWorklet on the operator's program bus, relayed by the WebSocket hub, played by an AudioWorklet jitter buffer (350 ms target, 2.5 s cap). Replaces WebM/MediaSource so iPhone/iPad Safari can listen. No header cache, so late joiners start immediately.
+- Program bus (operator): OpenAI translated voice and studio voice mixed through a light compressor; monitored on the operator's audio element (headphone routing kept) and broadcast. OpenAI reconnects swap the source inside the bus; the broadcast keeps running.
+- Studio voices: `/api/tts` streams `gpt-4o-mini-tts` PCM (13 voices, delivery style). Translated text re-voiced sentence by sentence, requests overlap playback, audio stays in order. Live switching.
+- Corrections glossary (`wrong => right`) applied to captions and studio voice.
+- Listener page: redesigned, AI-voice disclosure with voice name, wake lock, Media Session, iOS audio session `playback`, exponential reconnect backoff.
+- Listener bundle split from the operator console (≈93 kB gzip instead of ≈170 kB).
+- Caddy: no compression and no buffering on streamed voice audio.
+- Not yet verified on real devices: studio-voice latency, iPhone lock-screen behaviour, 30-listener load.

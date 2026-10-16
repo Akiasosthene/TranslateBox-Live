@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -11,6 +11,7 @@ import time
 import logging
 import hashlib
 from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 from pydantic import BaseModel, Field
@@ -26,6 +27,27 @@ load_dotenv(ROOT_DIR / '.env')
 OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/translations/client_secrets"
 REALTIME_MODEL = os.environ.get("OPENAI_REALTIME_MODEL", "gpt-realtime-translate")
 INPUT_TRANSCRIPTION_MODEL = "gpt-realtime-whisper"
+
+# Studio voices: translated text re-voiced with OpenAI text-to-speech.
+OPENAI_SPEECH_URL = "https://api.openai.com/v1/audio/speech"
+TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+STUDIO_VOICES = {
+    "alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx",
+    "sage", "shimmer", "verse", "marin", "cedar",
+}
+TTS_RATE_MAX = int(os.environ.get("TTS_RATE_LIMIT_MAX", "300"))
+_http_client: "httpx.AsyncClient | None" = None
+
+
+def _http() -> "httpx.AsyncClient":
+    """One pooled client: keep-alive to OpenAI saves a TLS handshake per sentence."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=5.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=60),
+        )
+    return _http_client
 
 # The 13 output languages supported by gpt-realtime-translate.
 SUPPORTED_OUTPUT_LANGUAGES = {
@@ -60,7 +82,14 @@ def _rate_limited(ip: str, maximum: int = RATE_LIMIT_MAX) -> bool:
     bucket.append(now)
     return False
 
-app = FastAPI(title="TranslateBox Live API", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def lifespan(_app):
+    yield
+    if _http_client is not None:
+        await _http_client.aclose()
+
+
+app = FastAPI(title="TranslateBox Live API", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
 def require_operator(request: Request):
@@ -145,6 +174,8 @@ async def health():
         "status": "ok",
         "openai_key_configured": bool(os.environ.get("OPENAI_API_KEY")),
         "model": REALTIME_MODEL,
+        "tts_model": TTS_MODEL,
+        "studio_voices": sorted(STUDIO_VOICES),
     }
 
 
@@ -186,6 +217,27 @@ def _build_session_config(target_language: str, noise_reduction: str = "near_fie
     }
 
 
+def _upstream_code(body: bytes):
+    try:
+        return json.loads(body or b"{}").get("error", {}).get("code")
+    except (ValueError, AttributeError):
+        return None
+
+
+def _raise_upstream(status_code: int, upstream_code, model_label: str = "translation model"):
+    if status_code == 401:
+        detail, status = "The server OpenAI key is invalid. Ask the administrator to replace it and restart the backend.", 502
+    elif status_code == 403:
+        detail, status = f"The server OpenAI project cannot access this {model_label}. Ask the administrator to check project permissions.", 502
+    elif status_code == 402 or upstream_code == "insufficient_quota":
+        detail, status = "The OpenAI project has insufficient credit or quota. Ask the administrator to check billing and usage limits.", 402
+    elif status_code == 429:
+        detail, status = "The translation service is receiving too many requests. Wait one minute before restarting.", 429
+    else:
+        detail, status = "The translation service is temporarily unavailable. Try again shortly.", 502
+    raise HTTPException(status_code=status, detail=detail)
+
+
 def _openai_headers(api_key: str) -> dict:
     # Bind the ephemeral secret to a stable, non-identifying operator hash.
     safety_id = hashlib.sha256(b"translatebox-live-operator").hexdigest()
@@ -203,8 +255,7 @@ async def _mint_session(base_config: dict, instructions: str, headers: dict):
     then gracefully fall back to the proven base config. Returns (resp, applied).
     """
     async def _post(config):
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            return await client.post(OPENAI_CLIENT_SECRETS_URL, headers=headers, json=config)
+        return await _http().post(OPENAI_CLIENT_SECRETS_URL, headers=headers, json=config, timeout=20.0)
 
     if not instructions:
         return await _post(base_config), False
@@ -249,26 +300,7 @@ async def create_realtime_session(req: SessionRequest, request: Request):
     if resp.status_code >= 400:
         # Log only status: upstream bodies may contain sensitive information.
         logger.error("OpenAI session error %s", resp.status_code)
-        try:
-            upstream_code = resp.json().get("error", {}).get("code")
-        except (ValueError, AttributeError):
-            upstream_code = None
-        if resp.status_code == 401:
-            detail = "The server OpenAI key is invalid. Ask the administrator to replace it and restart the backend."
-            status = 502
-        elif resp.status_code == 403:
-            detail = "The server OpenAI project cannot access this translation model. Ask the administrator to check project permissions."
-            status = 502
-        elif resp.status_code == 402 or upstream_code == "insufficient_quota":
-            detail = "The OpenAI project has insufficient credit or quota. Ask the administrator to check billing and usage limits."
-            status = 402
-        elif resp.status_code == 429:
-            detail = "The translation service is receiving too many requests. Wait one minute before restarting."
-            status = 429
-        else:
-            detail = "The translation service is temporarily unavailable. Try again shortly."
-            status = 502
-        raise HTTPException(status_code=status, detail=detail)
+        _raise_upstream(resp.status_code, _upstream_code(resp.content))
 
     logger.info(
         "Minted ephemeral translation session (model=%s, target=%s, instructions_applied=%s)",
@@ -287,6 +319,59 @@ async def create_realtime_session(req: SessionRequest, request: Request):
     }, headers={"Cache-Control": "no-store"})
 
 
+class TtsRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=1200)
+    voice: str = Field(default="marin", max_length=20)
+    style: str | None = Field(default=None, max_length=400)
+
+
+@api_router.post("/tts", dependencies=[Depends(require_operator)])
+async def studio_voice(req: TtsRequest, request: Request):
+    """Stream one translated sentence as 24 kHz mono PCM16 in a fixed voice."""
+    if _rate_limited("tts:" + _client_ip(request), TTS_RATE_MAX):
+        raise HTTPException(429, "Too many studio voice requests. Switch to the translation voice or slow down.")
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(503, "The translation service is not configured on the server.")
+    voice = req.voice.lower()
+    if voice not in STUDIO_VOICES:
+        raise HTTPException(400, f"Unknown voice '{voice}'.")
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(400, "Nothing to speak.")
+    payload = {"model": TTS_MODEL, "voice": voice, "input": text, "response_format": "pcm"}
+    style = (req.style or "").strip()
+    if style:
+        payload["instructions"] = style
+    client = _http()
+    try:
+        upstream = await client.send(
+            client.build_request("POST", OPENAI_SPEECH_URL, headers=_openai_headers(api_key), json=payload),
+            stream=True,
+        )
+    except httpx.RequestError as exc:
+        logger.error("Network error reaching speech service: %s", type(exc).__name__)
+        raise HTTPException(502, "The studio voice could not start. Try again shortly.")
+    if upstream.status_code >= 400:
+        body = await upstream.aread()
+        await upstream.aclose()
+        logger.error("OpenAI speech error %s", upstream.status_code)
+        _raise_upstream(upstream.status_code, _upstream_code(body), "speech model")
+
+    async def relay():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        except httpx.HTTPError as exc:
+            logger.warning("Speech stream interrupted: %s", type(exc).__name__)
+        finally:
+            await upstream.aclose()
+
+    return StreamingResponse(relay(), media_type="application/octet-stream", headers={
+        "Cache-Control": "no-store", "X-Audio-Format": "pcm16; rate=24000; channels=1",
+    })
+
+
 # ==========================================================================
 # V1 — Multi-listener broadcast (ONE OpenAI session -> many listeners)
 # ==========================================================================
@@ -296,11 +381,25 @@ MAX_LISTENERS = int(os.environ.get("MAX_LISTENERS", "30"))
 MAX_EVENTS = int(os.environ.get("MAX_EVENTS", "100"))
 EVENT_TTL = int(os.environ.get("EVENT_TTL_SECONDS", "86400"))
 EVENTS = EventStore(os.environ.get("EVENTS_DB_PATH", str(ROOT_DIR / "data" / "events.sqlite3")))
-ROOMS = {}    # event_id -> {"operator": ws|None, "listeners": set(), "init": bytes|None}
+ROOMS = {}    # event_id -> {"operator", "listeners", "init", "format", "meta"}
+AUDIO_FORMATS = {"pcm16": 16000, "webm": None}
 
 
 def _room(eid):
-    return ROOMS.setdefault(eid, {"operator": None, "listeners": set(), "init": None})
+    return ROOMS.setdefault(eid, {"operator": None, "listeners": set(), "init": None, "format": "pcm16", "rate": 16000, "meta": {}})
+
+
+def _clean_meta(raw: dict) -> dict:
+    voice = raw.get("voice")
+    mode = raw.get("mode")
+    return {
+        "mode": mode if mode in ("original", "studio") else "original",
+        "voice": voice[:40] if isinstance(voice, str) else None,
+    }
+
+
+def _listener_status(room) -> dict:
+    return {"type": "status", "live": bool(room["operator"]), "format": room["format"], "rate": room["rate"], "meta": room["meta"]}
 
 
 class EventCreate(BaseModel):
@@ -414,7 +513,7 @@ async def _notify_operator(eid):
 
 async def _broadcast_status(eid, live):
     room = _room(eid)
-    await _fanout(room, "send_json", {"type": "status", "live": live})
+    await _fanout(room, "send_json", {**_listener_status(room), "live": live})
 
 async def _fanout(room, method, data):
     async def deliver(listener):
@@ -429,9 +528,12 @@ async def _fanout(room, method, data):
     await asyncio.gather(*(deliver(listener) for listener in list(room["listeners"])))
 
 
-async def _run_operator(websocket: WebSocket, eid: str, room):
+async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str = "pcm16", rate: int = 16000):
     room["operator"] = websocket
     room["init"] = None
+    room["format"] = audio_format
+    room["rate"] = rate
+    room["meta"] = {}
     try:
         await websocket.send_json({"type": "ready"})
         await _broadcast_status(eid, True)
@@ -445,12 +547,18 @@ async def _run_operator(websocket: WebSocket, eid: str, room):
                 if len(data) > 262144:
                     await websocket.close(code=1009)
                     break
-                if room["init"] is None:
-                    room["init"] = data  # cache init/header segment for late joiners
+                if room["format"] == "webm" and room["init"] is None:
+                    room["init"] = data  # legacy WebM: cache header segment for late joiners
                 await _fanout(room, "send_bytes", data)
             elif msg.get("text") is not None:
                 try:
                     caption = json.loads(msg["text"])
+                    if not isinstance(caption, dict):
+                        continue
+                    if caption.get("type") == "meta":
+                        room["meta"] = _clean_meta(caption)
+                        await _fanout(room, "send_json", {"type": "meta", **room["meta"]})
+                        continue
                     if caption.get("type") == "caption" and isinstance(caption.get("text"), str):
                         enabled = bool(caption["text"])
                         if EVENTS[eid]["captions"] != enabled:
@@ -477,7 +585,7 @@ async def _run_listener(websocket: WebSocket, eid: str, room, pin):
     room["listeners"].add(websocket)
     await _notify_operator(eid)
     try:
-        await websocket.send_json({"type": "status", "live": bool(room["operator"])})
+        await websocket.send_json(_listener_status(room))
         if room["init"]:
             await websocket.send_bytes(room["init"])
         while True:
@@ -527,9 +635,14 @@ async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener"):
         if room["operator"] is not None:
             await websocket.close(code=4409)
             return
+        audio_format = auth.get("format", "webm")
+        if audio_format not in AUDIO_FORMATS:
+            await websocket.close(code=4400)
+            return
+        rate = AUDIO_FORMATS[audio_format] or 48000
         # Reserve before any await to prevent simultaneous operator takeover.
         room["operator"] = websocket
-        await _run_operator(websocket, eid, room)
+        await _run_operator(websocket, eid, room, audio_format, rate)
     elif role == "listener":
         pin = auth.get("pin")
         if pin is not None and not isinstance(pin, str):

@@ -8,6 +8,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env}
       OPERATOR_TOKEN: ${OPERATOR_TOKEN:?Set OPERATOR_TOKEN in .env}
       OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime-translate}
+      OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
+      TTS_RATE_LIMIT_MAX: ${TTS_RATE_LIMIT_MAX:-300}
       CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS to the exact public origin}
       # Backend is accessible only on the private Compose network.
       FORWARDED_ALLOW_IPS: '*'

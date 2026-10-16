@@ -31,7 +31,6 @@ export const AudioControlCard = () => {
         </div>
       </div>
 
-      <p className="text-sm text-slate-500">{t("Voix adaptée au locuteur : le modèle de traduction actuel ajuste le timbre à la voix source et ne propose pas de sélection de voix fixe.")}</p>
       <p className="rounded-lg bg-sky-500/10 p-3 text-sm">{t("Microphone only. For a video on your Mac, play it through the speakers and enable Ambient / TV mode below. Listen to the translation on your phone with headphones.")}</p>
 
       <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_auto] gap-3 md:gap-4 items-end pt-1 border-t border-slate-100 dark:border-slate-800/60">

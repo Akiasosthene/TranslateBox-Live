@@ -1,4 +1,5 @@
 import { operatorHeaders } from "./api";
+import { ProgramBus } from "./programBus";
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/translations/calls";
 const MAX_RECONNECTS = 5;
 
@@ -37,6 +38,8 @@ export class TranslationEngine {
     this._segActive = false;
     this._segMeasured = false;
     this._latencies = [];
+    // Program bus: mixes translation voice / studio voice for monitor + broadcast.
+    this.program = new ProgramBus({ onLog: (level, message, data) => this.log(level, message, data) });
   }
 
   log(level, message, data) {
@@ -52,10 +55,8 @@ export class TranslationEngine {
     if (el) {
       el.playsInline = true;
       el.volume = 1;
-      el.onplaying = () => {
-        this.setStatus({ outputAudio: el.muted ? "muted" : "active" });
-        this.log("info", "Translated audio playback started");
-      };
+      el.onplaying = () => this.log("info", "Program monitor playback started");
+      this.program.attachMonitor(el);
       this._applySink();
     }
   }
@@ -225,6 +226,9 @@ export class TranslationEngine {
     this.reconnectAttempts = 0;
     this._latencies = [];
     try {
+      // The audio context is created synchronously here, inside the START
+      // gesture, so browsers allow it to play; setup finishes in parallel.
+      this.programReady = this.program.ensure().catch((e) => this.log("warn", "Program audio unavailable: " + e.message));
       await this._connect();
     } catch (err) {
       if (generation !== this._generation) return;
@@ -284,10 +288,9 @@ export class TranslationEngine {
     pc.ontrack = (ev) => {
       if (this.pc !== pc) return;
       this.log("info", "Remote translated audio track received");
-      if (this.audioEl) {
-        this.audioEl.srcObject = ev.streams[0];
-        this._applySink();
-      }
+      const remote = ev.streams[0];
+      Promise.resolve(this.programReady).then(() => { if (this.pc === pc) this.program.setRemoteStream(remote); });
+      this._applySink();
       this.setStatus({ outputAudio: this.audioEl && this.audioEl.muted ? "muted" : "active" });
     };
 
@@ -460,7 +463,7 @@ export class TranslationEngine {
   _teardownPc() {
     clearTimeout(this._statsTimer);
     clearTimeout(this._disconnectTimer);
-    if (this.audioEl) this.audioEl.srcObject = null;
+    this.program.setRemoteStream(null);
     if (this.dc) {
       try {
         this.dc.close();
@@ -507,7 +510,7 @@ export class TranslationEngine {
     this._reconnecting = false;
     this._resetSegment();
     this._teardown();
-    if (this.audioEl) this.audioEl.srcObject = null;
+    this.program.clearSpeech();
     this.setStatus({
       mic: "idle",
       openai: "standby",

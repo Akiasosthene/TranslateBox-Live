@@ -51,6 +51,13 @@ docker compose up -d --build
 - Les sous-titres sont facultatifs. Désactiver leur diffusion efface le texte affiché chez les auditeurs connectés.
 - Export TXT/PDF disponible dans les paramètres. « Save transcripts » conserve le texte dans la session de la page après arrêt ; ce n’est pas une sauvegarde durable.
 
+## Voix
+
+- **Voix de traduction** (par défaut) : la voix de `gpt-realtime-translate`, qui suit le ton de l’orateur. Délai minimal. Ce modèle ne permet pas de choisir une voix.
+- **Voix studio** : le texte traduit est relu phrase par phrase par `gpt-4o-mini-tts` (`OPENAI_TTS_MODEL`) avec la voix choisie (Marin, Cedar, Coral, Sage…) et un style de diction. Compter environ 1 à 2 s de délai en plus et un coût de synthèse vocale par caractère. Le changement de voix est possible en direct.
+- **Corrections** : une ligne `erreur => correction` corrige les sous-titres et la voix studio. Elle ne modifie pas la voix de traduction directe.
+- La page auditeur indique toujours que la voix est générée par IA, comme l’exigent les règles d’usage d’OpenAI.
+
 ## Sécurité et confidentialité
 
 Les routes de création de session, d’événement et de statistiques exigent `Authorization: Bearer <OPERATOR_TOKEN>`. Le code opérateur reste en mémoire dans l’onglet et n’est pas intégré au build. Chaque événement possède un jeton de publication distinct, envoyé dans le premier message WebSocket, jamais dans le QR code ou l’URL. Le PIN est également envoyé dans le premier message.
@@ -75,7 +82,8 @@ La CI ajoute la construction des deux images et un contrôle HTTP de la stack Co
 ## Limites à vérifier avant un événement réel
 
 - Microphone et WebRTC : HTTPS obligatoire hors localhost.
-- Diffusion : WebM/Opus via MediaRecorder et MediaSource. Chrome/Edge sont la cible ; Safari/iOS doit être testé sur les appareils exacts. Une erreur explicite s’affiche si le format est indisponible.
+- Diffusion : PCM 16 kHz mono (≈256 kbit/s par auditeur) via WebSocket, lu par Web Audio (AudioWorklet) avec un tampon d’environ 350 ms. Fonctionne dans Chrome, Edge, Firefox et Safari, y compris iPhone/iPad. 30 auditeurs ≈ 8 Mbit/s sortants sur le serveur. À valider sur les appareils exacts.
+- Sur iPhone, la page demande à garder l’écran allumé (Wake Lock) ; si l’écran se verrouille, iOS peut suspendre le son.
 - Validation audio de bout en bout, arrivée tardive d’auditeurs, reprise après coupure et charge à 30 auditeurs restent à effectuer sur le réseau réel. Les tests automatisés ne prouvent pas la qualité audio ni la latence.
 - La latence affichée est une estimation. Les profils/glossaires sont une tentative de personnalisation avec repli si le modèle les refuse.
 - `/api/stats.openai_sessions` compte les opérateurs de diffusion connectés, pas les sessions OpenAI réelles ; une session utilisée uniquement dans la console n’est pas comptabilisée.

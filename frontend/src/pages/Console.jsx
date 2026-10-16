@@ -7,6 +7,7 @@ import { TranscriptPanel } from "../components/TranscriptPanel";
 import { SetupChecklist } from "../components/SetupChecklist";
 import { BroadcastPanel } from "../components/BroadcastPanel";
 import { AudioControlCard } from "../components/console/AudioControlCard";
+import { VoiceCard } from "../components/console/VoiceCard";
 import { TransportControls } from "../components/console/TransportControls";
 import { getTarget, sourceLabel } from "../lib/languages";
 
@@ -49,6 +50,7 @@ export default function Console() {
         <h2 className="font-bold text-lg">1 · {t("Prepare audio")}</h2>
         <SetupChecklist />
         <AudioControlCard />
+        <VoiceCard />
         </section>
 
         {error && (

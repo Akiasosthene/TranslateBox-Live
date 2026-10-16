@@ -4,11 +4,19 @@ import { InterfaceLanguage } from '../components/InterfaceLanguage';
 import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Play, Pause, Volume2, Wifi, WifiOff, Headphones } from "lucide-react";
+import { Play, Pause, Volume2, Wifi, WifiOff, Headphones, Sparkles, Square } from "lucide-react";
 import { WS_BASE } from "../lib/broadcast";
-
+import { createAudioContext, PcmPlayer, WIRE_RATE } from "../lib/pcmAudio";
 import { API } from "../lib/api";
 import { getTarget } from "../lib/languages";
+
+const RETRY_DELAYS = [1000, 2000, 4000, 8000];
+const CLOSE_MESSAGES = {
+  4401: "Incorrect PIN.",
+  4403: "This site is not allowed by the server.",
+  4429: "Event capacity or connection limit reached. Try again shortly.",
+  4404: "Event not found.",
+};
 
 export default function Listener() {
   const { t } = useLocale();
@@ -21,54 +29,50 @@ export default function Listener() {
   const [live, setLive] = useState(false);
   const [conn, setConn] = useState("idle");
   const [caption, setCaption] = useState("");
+  const [meta, setMeta] = useState({ mode: "original", voice: null });
   const [captionSize, setCaptionSize] = useState(() => {
     try { const size = Number(localStorage.getItem('tbl-caption-size')); return [18, 24, 32].includes(size) ? size : 24; } catch { return 24; }
   });
   const [playback, setPlayback] = useState("idle");
   const [volume, setVolume] = useState(1);
-
-  const audioRef = useRef(null);
-  const wsRef = useRef(null);
-  const msRef = useRef(null);
-  const sbRef = useRef(null);
-  const queueRef = useRef([]);
-  const retryRef = useRef(null);
-  const alignedRef = useRef(false);
-  const bufferingRef = useRef(true);
-
-  const wantedRef = useRef(false);
-  const objectUrlRef = useRef(null);
-  const pausedRef = useRef(false);
   const [paused, setPaused] = useState(false);
+  const [level, setLevel] = useState(0);
 
-  const release = useCallback(() => {
+  const wsRef = useRef(null);
+  const ctxRef = useRef(null);
+  const playerRef = useRef(null);
+  const retryRef = useRef(null);
+  const attemptRef = useRef(0);
+  const wantedRef = useRef(false);
+  const pausedRef = useRef(false);
+  const wakeRef = useRef(null);
+  const captionRef = useRef(null);
+
+  const closeSocket = useCallback(() => {
     clearTimeout(retryRef.current);
     if (wsRef.current) {
       wsRef.current.onclose = null;
+      wsRef.current.onmessage = null;
       wsRef.current.close();
       wsRef.current = null;
     }
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.removeAttribute("src");
-      audioRef.current.load();
-    }
-    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-    objectUrlRef.current = null;
-    sbRef.current = null;
-    msRef.current = null;
-    queueRef.current = [];
-    alignedRef.current = false;
-    bufferingRef.current = true;
+  }, []);
+
+  const releaseAudio = useCallback(() => {
+    playerRef.current?.dispose();
+    playerRef.current = null;
+    ctxRef.current?.close?.().catch(() => {});
+    ctxRef.current = null;
+    wakeRef.current?.release?.().catch(() => {});
+    wakeRef.current = null;
   }, []);
 
   const stop = useCallback(() => {
     wantedRef.current = false;
-    release();
-    setListening(false);
-    setConn("idle");
-    setPlayback("idle");
-  }, [release]);
+    closeSocket();
+    releaseAudio();
+    setListening(false); setConn("idle"); setPlayback("idle"); setLevel(0);
+  }, [closeSocket, releaseAudio]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -77,213 +81,237 @@ export default function Listener() {
       .then(r => r.ok ? r.json() : Promise.reject(new Error("Event not found.")))
       .then(d => { setInfo(d); setNeedPin(d.pin_protected); setLive(d.live); })
       .catch(e => { if (e.name !== "AbortError") setErr(e.message); });
-    return () => { controller.abort(); wantedRef.current = false; release(); };
-  }, [id, release]);
+    return () => { controller.abort(); wantedRef.current = false; closeSocket(); releaseAudio(); };
+  }, [id, closeSocket, releaseAudio]);
 
-  const pump = useCallback(() => {
-    const sb = sbRef.current;
-    const audio = audioRef.current;
-    if (!sb || sb.updating || !queueRef.current.length) return;
-    try {
-      if (sb.buffered.length && audio.currentTime - sb.buffered.start(0) > 30) {
-        sb.remove(sb.buffered.start(0), audio.currentTime - 10);
-        return;
-      }
-      sb.appendBuffer(queueRef.current[0]);
-      queueRef.current.shift();
-    } catch {
-      setErr("Audio playback failed. Stop and rejoin the event.");
-    }
+  // Keep the screen awake while listening; phones otherwise lock and the
+  // browser may suspend audio. Re-acquire when the page becomes visible.
+  const keepAwake = useCallback(async () => {
+    try { if (navigator.wakeLock && !wakeRef.current) { wakeRef.current = await navigator.wakeLock.request("screen"); wakeRef.current.addEventListener?.("release", () => { wakeRef.current = null; }); } }
+    catch { /* Not granted: playback still works while the page stays open. */ }
   }, []);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || !wantedRef.current) return;
+      ctxRef.current?.resume?.().catch(() => {});
+      keepAwake();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [keepAwake]);
 
   const connect = useCallback(function openStream() {
-    release();
+    closeSocket();
     if (!wantedRef.current) return;
-    if (!globalThis.MediaSource?.isTypeSupported('audio/webm;codecs=opus')) {
-      setErr("Your browser cannot play this broadcast. Use Chrome or Edge with WebM/Opus support.");
-      wantedRef.current = false; setListening(false); return;
-    }
     setConn("connecting");
-    setPlayback("buffering");
-    const ms = new MediaSource();
-    msRef.current = ms;
-    objectUrlRef.current = URL.createObjectURL(ms);
-    audioRef.current.src = objectUrlRef.current;
-    ms.addEventListener("sourceopen", () => {
-      if (msRef.current !== ms) return;
-      try {
-        const sb = ms.addSourceBuffer('audio/webm;codecs=opus');
-        sbRef.current = sb;
-        sb.addEventListener("updateend", () => {
-          if (sbRef.current !== sb) return;
-          // Align only on joining. Repeated jumps to live drop spoken words.
-          const audio = audioRef.current;
-          if (sb.buffered.length && audio && !pausedRef.current) {
-            const last = sb.buffered.length - 1;
-            const start = sb.buffered.start(last);
-            const end = sb.buffered.end(last);
-            if (!alignedRef.current && end - start >= 1) {
-              audio.currentTime = Math.max(start, end - 1);
-              alignedRef.current = true;
-            }
-            let ahead = 0;
-            for (let i = 0; i < sb.buffered.length; i++) {
-              if (audio.currentTime >= sb.buffered.start(i) && audio.currentTime <= sb.buffered.end(i)) {
-                ahead = sb.buffered.end(i) - audio.currentTime;
-                break;
-              }
-            }
-            if (alignedRef.current && bufferingRef.current && ahead >= 1) {
-              bufferingRef.current = false;
-              audio.play().catch(() => { pausedRef.current = true; setPaused(true); setPlayback("blocked"); setErr("Press play to enable audio."); });
-            }
-          }
-          pump();
-        });
-        sb.addEventListener("error", () => { setErr("Audio interrupted. Reconnecting…"); wsRef.current?.close(); });
-        pump();
-      } catch { setErr("Unable to initialize audio playback."); stop(); }
-    }, { once: true });
-
+    if (!pausedRef.current) setPlayback("buffering");
     const ws = new WebSocket(`${WS_BASE}/api/ws/${id}?role=listener`);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
-    let wasLive = false;
-    ws.onopen = () => { ws.send(JSON.stringify({type: "auth", pin: pin || null})); };
-    ws.onmessage = ({data}) => {
+    ws.onopen = () => { ws.send(JSON.stringify({ type: "auth", pin: pin || null })); };
+    ws.onmessage = ({ data }) => {
       if (wsRef.current !== ws) return;
       if (typeof data === "string") {
-        try {
-          const m = JSON.parse(data);
-          if (m.type === "status") {
-            setConn("connected"); setLive(m.live); setErr("");
-            // A new recorder has a new WebM header; reconnect to a fresh MediaSource.
-            if (wasLive && !m.live) { ws.close(); return; }
-            wasLive = m.live;
+        let m;
+        try { m = JSON.parse(data); } catch { return; }
+        if (m.type === "status") {
+          attemptRef.current = 0;
+          setConn("connected"); setLive(!!m.live); setErr("");
+          if (m.meta) setMeta(m.meta);
+          if (m.live && m.format && m.format !== "pcm16") {
+            setErr("This event uses an older broadcast format. Ask the organizer to update TranslateBox.");
           }
-          if (m.type === "caption") setCaption(m.text || "");
-        } catch {}
+          if (!m.live) playerRef.current?.clear();
+        }
+        if (m.type === "meta") setMeta({ mode: m.mode, voice: m.voice });
+        if (m.type === "caption") setCaption(m.text || "");
         return;
       }
-      if (queueRef.current.length >= 120) { ws.close(); return; }
-      queueRef.current.push(new Uint8Array(data));
-      pump();
+      playerRef.current?.push(data);
     };
-    ws.onclose = ({code}) => {
+    ws.onclose = ({ code }) => {
       if (wsRef.current !== ws) return;
-      release(); setConn("disconnected"); setLive(false);
-      const messages = {4401: "Incorrect PIN.", 4403: "This site is not allowed by the server.", 4429: "Event capacity or connection limit reached. Try again shortly.", 4404: "Event not found."};
-      if (messages[code]) {
-        setErr(messages[code]); if (code === 4401) setNeedPin(true);
-        wantedRef.current = false; setListening(false); return;
+      wsRef.current = null;
+      playerRef.current?.clear();
+      setConn("disconnected"); setLive(false);
+      if (CLOSE_MESSAGES[code]) {
+        setErr(CLOSE_MESSAGES[code]); if (code === 4401) setNeedPin(true);
+        wantedRef.current = false; setListening(false); releaseAudio(); setPlayback("idle");
+        return;
       }
-      if (wantedRef.current) retryRef.current = setTimeout(openStream, 1500);
+      if (wantedRef.current) {
+        const delay = RETRY_DELAYS[Math.min(attemptRef.current, RETRY_DELAYS.length - 1)];
+        attemptRef.current += 1;
+        retryRef.current = setTimeout(openStream, delay);
+      }
     };
     ws.onerror = () => setConn("disconnected");
-  }, [id, pin, pump, release, stop]);
+  }, [id, pin, closeSocket, releaseAudio]);
 
-  const listen = () => {
+  const listen = async () => {
     setErr(""); setCaption(""); pausedRef.current = false; setPaused(false);
-    wantedRef.current = true; setListening(true); connect();
+    let ctx;
+    try {
+      // Created inside the tap so iOS and Chrome allow sound.
+      ctx = createAudioContext();
+      // iOS: play even when the ring/silent switch is on.
+      try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch { /* Optional API */ }
+      ctx.resume?.().catch(() => {});
+      ctxRef.current = ctx;
+      wantedRef.current = true; setListening(true);
+      const player = new PcmPlayer(ctx, {
+        inRate: WIRE_RATE, targetMs: 350, maxMs: 2500,
+        onStats: (s) => {
+          if (!wantedRef.current || pausedRef.current) return;
+          setPlayback(s.playing ? "playing" : "buffering");
+          setLevel(Math.round((s.level || 0) * 50) / 50);
+        },
+      });
+      playerRef.current = player;
+      await player.init();
+      player.setVolume(volume);
+    } catch (e) {
+      wantedRef.current = false; setListening(false); releaseAudio();
+      setErr(e?.message || "Unable to initialize audio playback.");
+      return;
+    }
+    keepAwake();
+    if ("mediaSession" in navigator && globalThis.MediaMetadata) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: info?.name || "Live Interpretation", artist: info?.organization || "TranslateBox", album: getTarget(info?.target || "en").native });
+        navigator.mediaSession.setActionHandler("pause", () => togglePlay(true));
+        navigator.mediaSession.setActionHandler("play", () => togglePlay(false));
+      } catch { /* Optional API */ }
+    }
+    connect();
   };
 
-  const togglePlay = () => {
-    const a = audioRef.current;
-    if (!a) return;
-    pausedRef.current = !pausedRef.current;
-    setPaused(pausedRef.current);
-    if (pausedRef.current) a.pause();
-    else a.play().catch(() => { pausedRef.current = true; setPaused(true); setPlayback("blocked"); setErr("Press play to enable audio."); });
+  const togglePlay = (force) => {
+    const next = typeof force === "boolean" ? force : !pausedRef.current;
+    pausedRef.current = next;
+    setPaused(next);
+    playerRef.current?.setPaused(next);
+    ctxRef.current?.resume?.().catch(() => {});
+    setPlayback(next ? "paused" : "buffering");
   };
+
+  useEffect(() => {
+    const el = captionRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [caption]);
 
   if (err && !info) {
     return <Shell><p className="text-rose-400 font-mono">{t(err)}</p></Shell>;
   }
 
+  const target = getTarget(info?.target || "en");
+  const statusText = t(!listening ? (live ? "Ready to listen" : "Waiting for speaker…")
+    : conn === "disconnected" ? "Reconnecting…"
+    : paused ? "Audio paused"
+    : conn === "connecting" ? "Connecting…"
+    : !live ? "Waiting for speaker…"
+    : playback === "playing" ? "Translation playing" : "Buffering audio…");
+  const glow = Math.min(1, level * 6);
+
   return (
     <Shell>
-      <div className="w-full max-w-md text-center pt-12">
-        <p className="text-xs font-mono uppercase tracking-[0.35em] text-emerald-400 mb-6">TranslateBox</p>
-        <h1 className="text-2xl font-extrabold text-slate-50">{info?.name || t("Live Interpretation")}</h1>
-        {info?.organization && <p className="text-slate-400 mt-1">{info.organization}</p>}
+      <div className="w-full max-w-md pt-16 pb-10">
+        <header className="text-center">
+          <p className="text-[11px] font-mono uppercase tracking-[0.35em] text-emerald-400/90">TranslateBox · {t("Live")}</p>
+          <h1 className="mt-4 text-[28px] leading-tight font-extrabold text-slate-50 text-balance">{info?.name || t("Live Interpretation")}</h1>
+          {info?.organization && <p className="text-slate-400 mt-1">{info.organization}</p>}
+          <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5">
+            <span className="text-xl leading-none">{target.flag}</span>
+            <span className="text-sm font-semibold tracking-wide text-slate-200">{target.native}</span>
+          </div>
+        </header>
 
-        <div className="mt-8 mb-6 flex items-center justify-center gap-2 text-slate-300">
-          <span className="text-4xl">{getTarget(info?.target || "en").flag}</span>
-          <span className="text-lg font-semibold uppercase tracking-wider">
-            {getTarget(info?.target || "en").native}
-          </span>
+        <div className="mt-8 flex items-center justify-center gap-2" data-testid="listener-status" role="status" aria-live="polite">
+          <span className={`h-2.5 w-2.5 rounded-full ${live ? "bg-emerald-400 shadow-[0_0_10px_2px_rgba(16,185,129,0.6)]" : "bg-slate-600"}`} />
+          <span className="text-xs font-mono uppercase tracking-widest text-slate-300">{statusText}</span>
         </div>
-
-        <div className="flex items-center justify-center gap-2 mb-6" data-testid="listener-status" role="status" aria-live="polite">
-          <span className={`h-2.5 w-2.5 rounded-full ${live ? "bg-emerald-400 shadow-[0_0_10px_2px_rgba(16,185,129,0.6)] animate-pulse" : "bg-slate-600"}`} />
-          <span className="text-xs font-mono uppercase tracking-widest text-slate-400">{t(!listening ? (live ? "Ready to listen" : "Waiting for speaker…") : conn === "disconnected" ? "Reconnecting…" : conn === "connecting" ? "Connecting…" : paused ? "Audio paused" : !live ? "Waiting for speaker…" : playback === "playing" ? "Translation playing" : "Buffering audio…")}</span>
-        </div>
-
-        <p className="mb-5 text-sm text-slate-300">{t("Scanning the QR code opens the event. Tap LISTEN below to connect and enable sound.")}</p>
-        {!listening && <HeadphoneTest />}
-        {needPin && !listening && (
-          <input data-testid="listener-pin-input" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={t("Enter event PIN")}
-            className="w-full h-12 mb-4 rounded-xl bg-white/5 border border-white/10 px-4 text-center text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-        )}
 
         {!listening ? (
-          <button data-testid="listener-listen-button" onClick={listen}
-            className="w-full h-16 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-xl font-bold shadow-[0_0_30px_rgba(16,185,129,0.35)] active:scale-[0.98] transition flex items-center justify-center gap-3">
-            <Headphones className="h-6 w-6" />{t("LISTEN")}</button>
+          <div className="mt-8 space-y-5">
+            {needPin && (
+              <input data-testid="listener-pin-input" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={t("Enter event PIN")} inputMode="numeric" autoComplete="off"
+                className="w-full h-12 rounded-xl bg-white/5 border border-white/10 px-4 text-center text-slate-100 text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            )}
+            <button data-testid="listener-listen-button" onClick={listen}
+              className="w-full h-16 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-[#05140E] text-xl font-extrabold tracking-wide shadow-[0_10px_40px_-10px_rgba(16,185,129,0.7)] active:scale-[0.98] transition flex items-center justify-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">
+              <Headphones className="h-6 w-6" />{t("LISTEN")}</button>
+            <p className="text-sm text-slate-400 text-center">{t("Tap LISTEN to connect and enable sound. Works on iPhone, Android and computers.")}</p>
+            <HeadphoneTest />
+          </div>
         ) : (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <button aria-label={paused ? t("Play audio") : t("Pause audio")} data-testid="listener-playpause" onClick={togglePlay} className="h-14 w-14 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white">
-                {!paused ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 fill-white" />}
-              </button>
-              <Volume2 className="h-5 w-5 text-slate-400" />
-              <input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume}
-                onChange={(e) => { setVolume(+e.target.value); if (audioRef.current) audioRef.current.volume = +e.target.value; }}
-                className="flex-1 accent-emerald-500" data-testid="listener-volume" />
-              <button data-testid="listener-stop" onClick={stop} className="px-3 h-10 rounded-lg border border-white/15 text-slate-300 text-sm">{t("Stop")}</button>
-            </div>
-            <div className="flex items-center justify-center gap-2 text-xs font-mono uppercase tracking-widest text-slate-500" data-testid="listener-conn">
-              {conn === "connected" ? <Wifi className="h-4 w-4 text-emerald-400" /> : <WifiOff className="h-4 w-4 text-amber-400" />}
-              {t({connected: "Connected", disconnected: "Reconnecting…", connecting: "Connecting…", idle: "Stopped"}[conn])}
-            </div>
-            {!live && conn === "connected" && (
-              <p className="text-amber-400 text-sm font-mono">{t("Translation temporarily unavailable — resuming automatically…")}</p>
-            )}
-            <label className="flex items-center justify-between gap-3 text-sm text-slate-200">
-              {t("Caption size")}
-              <select aria-label={t("Caption size")} className="rounded-lg bg-slate-800 px-3 py-2" value={captionSize} onChange={e => {
-                const size = Number(e.target.value); setCaptionSize(size);
-                try { localStorage.setItem('tbl-caption-size', String(size)); } catch { /* Optional preference storage. */ }
-              }}>
-                <option value={18}>{t("Standard")}</option><option value={24}>{t("Large")}</option><option value={32}>{t("Extra large")}</option>
-              </select>
-            </label>
-            {!caption && <p className="text-sm text-slate-300">{t("Captions appear here when the organizer enables them.")}</p>}
-            {caption && (
-              <div style={{fontSize: `${captionSize}px`}} data-testid="listener-caption" className="mt-4 rounded-xl bg-white/5 border border-white/10 p-4 text-left text-lg leading-relaxed text-slate-100 max-h-52 overflow-y-auto whitespace-pre-wrap">
-                {caption}
+          <div className="mt-8 space-y-6">
+            <div className="flex flex-col items-center">
+              <div className="relative h-36 w-36 flex items-center justify-center">
+                <span aria-hidden className="absolute inset-0 rounded-full bg-emerald-500/20 transition-transform duration-150 motion-reduce:transition-none"
+                  style={{ transform: `scale(${playback === "playing" ? 0.82 + glow * 0.22 : 0.8})`, opacity: playback === "playing" ? 0.5 + glow * 0.5 : 0.25 }} />
+                <span aria-hidden className="absolute inset-3 rounded-full border border-emerald-400/30" />
+                <button aria-label={paused ? t("Play audio") : t("Pause audio")} data-testid="listener-playpause" onClick={() => togglePlay()}
+                  className="relative h-24 w-24 rounded-full bg-emerald-500 hover:bg-emerald-400 text-[#05140E] flex items-center justify-center shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-300">
+                  {!paused ? <Pause className="h-9 w-9" /> : <Play className="h-9 w-9 fill-current ml-1" />}
+                </button>
               </div>
+              <div className="mt-3 flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-slate-400" data-testid="listener-conn">
+                {conn === "connected" ? <Wifi className="h-4 w-4 text-emerald-400" /> : <WifiOff className="h-4 w-4 text-amber-400" />}
+                {t({ connected: "Connected", disconnected: "Reconnecting…", connecting: "Connecting…", idle: "Stopped" }[conn])}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+              <Volume2 className="h-5 w-5 text-slate-400 shrink-0" />
+              <input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume}
+                onChange={(e) => { const v = +e.target.value; setVolume(v); playerRef.current?.setVolume(v); }}
+                className="flex-1 accent-emerald-500" data-testid="listener-volume" />
+              <button data-testid="listener-stop" onClick={stop} className="inline-flex items-center gap-1.5 px-3 h-10 rounded-lg border border-white/15 text-slate-200 text-sm hover:bg-white/5">
+                <Square className="h-3.5 w-3.5" />{t("Stop")}</button>
+            </div>
+
+            {!live && conn === "connected" && (
+              <p className="text-amber-300 text-sm text-center">{t("Translation temporarily unavailable — resuming automatically…")}</p>
             )}
+
+            <section aria-label={t("Captions")} className="space-y-2">
+              <label className="flex items-center justify-between gap-3 text-sm text-slate-300">
+                {t("Caption size")}
+                <select aria-label={t("Caption size")} className="rounded-lg bg-slate-800 px-3 py-2 text-slate-100" value={captionSize} onChange={e => {
+                  const size = Number(e.target.value); setCaptionSize(size);
+                  try { localStorage.setItem('tbl-caption-size', String(size)); } catch { /* Optional preference storage. */ }
+                }}>
+                  <option value={18}>{t("Standard")}</option><option value={24}>{t("Large")}</option><option value={32}>{t("Extra large")}</option>
+                </select>
+              </label>
+              {caption ? (
+                <div ref={captionRef} style={{ fontSize: `${captionSize}px` }} data-testid="listener-caption"
+                  className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 text-left leading-relaxed text-slate-100 max-h-64 overflow-y-auto whitespace-pre-wrap">
+                  {caption}
+                </div>
+              ) : <p className="text-sm text-slate-400">{t("Captions appear here when the organizer enables them.")}</p>}
+            </section>
           </div>
         )}
-        {err && <p className="mt-4 text-rose-400 text-sm font-mono" data-testid="listener-error">{t(err)}</p>}
-        <audio ref={audioRef} playsInline onPlaying={() => { setPlayback("playing"); setErr(""); }} onWaiting={() => {
-          if (wantedRef.current && !pausedRef.current) {
-            bufferingRef.current = true;
-            setPlayback("buffering");
-            audioRef.current?.pause();
-          }
-        }} />
-        <p className="mt-6 text-sm text-slate-300">{t("Connect your headphones before listening. If your phone interrupts playback when locked, keep this page open.")}</p>
-        <p className="mt-10 text-[11px] text-slate-600 font-mono">{t("No account needed · audio is not recorded")}</p>
+
+        {err && <p className="mt-5 text-rose-400 text-sm text-center" data-testid="listener-error">{t(err)}</p>}
+
+        <div className="mt-8 space-y-2 text-center">
+          <p data-testid="listener-ai-voice" className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+            <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+            {meta?.mode === "studio" && meta.voice ? `${t("AI-generated voice")} · ${meta.voice}` : t("AI-generated voice")}
+          </p>
+          <p className="text-xs text-slate-500">{t("On iPhone, turn up the media volume. Keep this page open during the event.")}</p>
+          <p className="text-[11px] text-slate-600 font-mono">{t("No account needed · audio is not recorded")}</p>
+        </div>
       </div>
     </Shell>
   );
 }
 
 const Shell = ({ children }) => (
-  <div className="tb-listener min-h-screen bg-[#0A0D14] text-slate-100 font-sans flex items-center justify-center p-6"
-    style={{ backgroundImage: "radial-gradient(1000px 500px at 50% -10%, rgba(16,185,129,0.10), transparent 60%)" }}>
+  <div className="tb-listener relative min-h-screen bg-[#0A0D14] text-slate-100 font-sans flex justify-center px-5"
+    style={{ backgroundImage: "radial-gradient(900px 480px at 50% -12%, rgba(16,185,129,0.14), transparent 62%)", paddingLeft: "max(20px, env(safe-area-inset-left))", paddingRight: "max(20px, env(safe-area-inset-right))" }}>
     <div className="absolute top-4 inset-x-4 flex items-center justify-between gap-3"><HomeLink /><InterfaceLanguage /></div>
     {children}
   </div>

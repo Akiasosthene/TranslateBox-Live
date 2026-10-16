@@ -1,36 +1,37 @@
+import { PcmCapture, WIRE_RATE } from './pcmAudio';
 export { WS_BASE } from './api';
 
+// Sends the operator's program audio to the backend hub as 16 kHz PCM frames.
+// `program` is a ProgramBus (ctx + output node). Listeners play the frames
+// with Web Audio, which works on iPhone/iPad Safari as well as desktop.
 export class OperatorBroadcaster {
-  constructor(wsUrl, { token, onCount = () => {}, onStatus = () => {} } = {}) {
-    Object.assign(this, { wsUrl, token, onCount, onStatus, ws: null, recorder: null });
+  constructor(wsUrl, { token, onCount = () => {}, onStatus = () => {}, createCapture } = {}) {
+    Object.assign(this, { wsUrl, token, onCount, onStatus, ws: null, capture: null, slowSince: 0 });
+    this.createCapture = createCapture || ((ctx, node, onFrame) => new PcmCapture(ctx, node, onFrame).init());
   }
-  start(stream) {
+
+  start(program) {
     return new Promise((resolve, reject) => {
-      if (!globalThis.MediaRecorder?.isTypeSupported('audio/webm;codecs=opus')) {
-        reject(new Error('Broadcast requires a browser with WebM/Opus recording support (Chrome or Edge).'));
+      if (!program?.ctx || !program.output) {
+        reject(new Error('Broadcast audio is not ready. Start translation and retry.'));
         return;
       }
       const ws = this.ws = new WebSocket(this.wsUrl);
+      ws.binaryType = 'arraybuffer';
       let ready = false;
       const fail = (message) => { clearTimeout(timer); this.stop(); this.onStatus({live: false, error: message}); reject(new Error(message)); };
       const timer = setTimeout(() => fail('Broadcast connection timed out'), 10000);
-      ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: this.token }));
-      ws.onmessage = ({ data }) => {
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: this.token, format: 'pcm16', rate: WIRE_RATE }));
+      ws.onmessage = async ({ data }) => {
         let message;
         try { message = JSON.parse(data); } catch { return; }
         if (message.type === 'ready' && !ready) {
+          ready = true;
           try {
-            this.recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 48000 });
-            this.recorder.ondataavailable = ({ data: chunk }) => {
-              if (chunk.size && ws.readyState === 1) {
-                if (ws.bufferedAmount > 1024 * 1024) { this.stop(); this.onStatus({live: false, error: 'Broadcast connection too slow'}); return; }
-                ws.send(chunk);
-              }
-            };
-            this.recorder.onerror = () => fail('Audio recording failed. Restart the broadcast.');
-            this.recorder.start(250);
-            ready = true; clearTimeout(timer); resolve();
-          } catch (error) { fail(error.message); }
+            this.capture = await this.createCapture(program.ctx, program.output, (frame) => this._send(frame));
+            if (this.ws !== ws) { this.capture?.dispose?.(); this.capture = null; return; }
+            clearTimeout(timer); resolve();
+          } catch (error) { fail(error.message || 'Audio capture failed'); }
         }
         if (message.type === 'listeners') this.onCount(message.count);
       };
@@ -43,12 +44,31 @@ export class OperatorBroadcaster {
       };
     });
   }
-  sendCaption(text) {
-    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ type: 'caption', text: text.slice(-6000) }));
+
+  _send(frame) {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== 1) return;
+    // Under congestion, drop frames rather than building a growing delay.
+    if (ws.bufferedAmount > 256 * 1024) {
+      if (!this.slowSince) this.slowSince = Date.now();
+      if (Date.now() - this.slowSince > 8000) { this.stop(); this.onStatus({live: false, error: 'Broadcast connection too slow'}); }
+      return;
+    }
+    this.slowSince = 0;
+    ws.send(frame);
   }
+
+  sendJson(message) {
+    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(message));
+  }
+
+  sendCaption(text) { this.sendJson({ type: 'caption', text: text.slice(-6000) }); }
+
+  sendMeta(meta) { this.sendJson({ type: 'meta', ...meta }); }
+
   stop() {
-    if (this.recorder?.state !== 'inactive') this.recorder?.stop();
-    this.recorder = null;
-    if (this.ws) { this.ws.onclose = null; this.ws.close(); this.ws = null; }
+    this.capture?.dispose?.();
+    this.capture = null;
+    if (this.ws) { this.ws.onclose = null; this.ws.onmessage = null; this.ws.close(); this.ws = null; }
   }
 }
