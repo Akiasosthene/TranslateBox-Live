@@ -293,3 +293,10 @@
 .ts-logo svg { width: 34px; height: 34px; }
 .ts-logo b { color: var(--blue); }
 .ts-footer .ts-logo b { color: #7DD3FC; }
+
+/* Site language switcher */
+.ts-lang { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; height: 38px; background: #fff; }
+.ts-lang select { border: 0; background: transparent; font: inherit; font-size: 14px; font-weight: 600; color: var(--navy); cursor: pointer; padding: 0 2px; }
+.ts-lang select:focus { outline: none; }
+.ts-lang:focus-within { box-shadow: 0 0 0 3px rgba(26, 115, 232, .25); }
+.ts-hero .ts-h1 { margin-top: 0; }

@@ -1,17 +1,16 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { AudioLines, ChevronDown, X, Menu, Presentation, GraduationCap, Landmark, Globe, Users, MessageSquareText, Mic, Languages, Radio, Smartphone, Headphones, Captions, FileText, Sparkles, Monitor, UserRound, Video, Workflow, CircleHelp, QrCode, LayoutGrid, Circle, ShieldCheck, CircleCheck, ArrowRight, Plus, Check, Waypoints, MonitorPlay, Clapperboard, LayoutDashboard, BadgeCheck, Code2, CalendarClock, ListChecks } from "lucide-react";
-
-const Icons = { AudioLines, ChevronDown, X, Menu, Presentation, GraduationCap, Landmark, Globe, Users, MessageSquareText, Mic, Languages, Radio, Smartphone, Headphones, Captions, FileText, Sparkles, Monitor, UserRound, Video, Workflow, CircleHelp, QrCode, LayoutGrid, Circle, ShieldCheck, CircleCheck, ArrowRight, Plus, Check, Waypoints, MonitorPlay, Clapperboard, LayoutDashboard, BadgeCheck, Code2, CalendarClock, ListChecks };
+import { ChevronDown, X, Menu, Presentation, GraduationCap, Landmark, Globe, Users, Mic, Languages, Radio, Smartphone, Headphones, Captions, FileText, Sparkles, Monitor, UserRound, Circle, ShieldCheck, CircleCheck, ArrowRight, Plus, Check, Waypoints, MonitorPlay, CalendarClock, AudioLines } from "lucide-react";
 import { useLocale } from "../context/LocaleContext";
-import { InterfaceLanguage } from "../components/InterfaceLanguage";
-import { NAV, PRODUCTS, USECASES, CATEGORIES, COMMON, IMG } from "./content";
+import { NAV, PRODUCTS, USECASES, COMMON, IMG, LANGS } from "./content";
 import "./site.css";
 import { SyntovaMark } from "../components/SyntovaMark";
 
+const Icons = { ChevronDown, X, Menu, Presentation, GraduationCap, Landmark, Globe, Users, Mic, Languages, Radio, Smartphone, Headphones, Captions, FileText, Sparkles, Monitor, UserRound, Circle, ShieldCheck, CircleCheck, ArrowRight, Plus, Check, Waypoints, MonitorPlay, CalendarClock, AudioLines };
+
 export const useCopy = (table) => {
   const { language } = useLocale();
-  return table[language] || table.fr;
+  return table[language] || table.en;
 };
 export const Icon = ({ name, size = 20, ...rest }) => {
   const C = Icons[name] || Icons.Circle;
@@ -23,14 +22,25 @@ export function Logo() {
   return <Link to="/" className="ts-logo" aria-label="Syntova"><SyntovaMark /><span>synt<b>ova</b></span></Link>;
 }
 
-function Dropdown({ label, wide, mega, children, id, open, setOpen }) {
-  const ref = useRef(null);
+function SiteLanguage() {
+  const { language, setLanguage } = useLocale();
+  const c = useCopy(COMMON);
   return (
-    <div ref={ref} onMouseEnter={() => setOpen(id)} onMouseLeave={() => setOpen(null)}>
+    <label className="ts-lang"><Globe size={16} aria-hidden="true" />
+      <select value={language} onChange={(e) => setLanguage(e.target.value)} aria-label={c.language}>
+        {LANGS.map(([code, name]) => <option key={code} value={code} lang={code}>{name}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function Dropdown({ label, wide, children, id, open, setOpen }) {
+  return (
+    <div onMouseEnter={() => setOpen(id)} onMouseLeave={() => setOpen(null)}>
       <button className="ts-menu-trigger" aria-expanded={open === id} aria-haspopup="true" onClick={() => setOpen(open === id ? null : id)}>
-        {label}<Icons.ChevronDown size={16} />
+        {label}<ChevronDown size={16} />
       </button>
-      {open === id && <div className={`ts-drop ${wide ? "wide" : ""} ${mega ? "mega" : ""}`} role="menu">{children}</div>}
+      {open === id && <div className={`ts-drop ${wide ? "wide" : ""}`} role="menu">{children}</div>}
     </div>
   );
 }
@@ -43,9 +53,7 @@ export function SiteLayout({ children }) {
   const nav = useCopy(NAV);
   const products = useCopy(PRODUCTS);
   const usecases = useCopy(USECASES);
-  const cats = useCopy(CATEGORIES);
   const c = useCopy(COMMON);
-  const groups = Object.keys(cats).map((k) => [k, cats[k], products.filter((p) => p.cat === k)]);
   const { language } = useLocale();
   const [open, setOpen] = useState(null);
   const [mobile, setMobile] = useState(false);
@@ -64,77 +72,56 @@ export function SiteLayout({ children }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const resources = [
-    ["/fonctionnalites", "ListChecks", nav.features],
-    ["/comment-ca-marche", "Workflow", nav.how],
-    ["/faq", "CircleHelp", nav.faq],
-    ["/securite", "ShieldCheck", nav.security],
-    ["/join", "QrCode", nav.join],
-  ];
+  const resources = [["/fonctionnalites", "CircleCheck", nav.features], ["/comment-ca-marche", "Radio", nav.how], ["/faq", "Captions", nav.faq], ["/securite", "ShieldCheck", nav.security]];
   return (
     <div className="ts">
       <a href="#main" className="sr-only focus:not-sr-only">Skip to content</a>
-      <div className="ts-announce">{nav.announce}<Link to="/produits/traduction">{nav.announceLink} →</Link></div>
       <header className="ts-header">
         <div className="ts-wrap ts-header-in">
           <Logo />
           <nav className="ts-menu" aria-label="Menu">
-            <Dropdown id="p" label={nav.products} mega open={open} setOpen={setOpen}>
-              {groups.map(([k, label, items]) => (
-                <div key={k} className="ts-drop-col"><h6>{label}</h6>{items.map((p) => <Item key={p.slug} to={`/produits/${p.slug}`} icon={p.icon} title={p.name} />)}</div>
-              ))}
-              <div className="ts-drop-foot"><Link to="/produits" role="menuitem">{nav.allProducts} →</Link><Link to="/fonctionnalites" role="menuitem">{nav.features} →</Link></div>
+            <Dropdown id="p" label={nav.products} wide open={open} setOpen={setOpen}>
+              {products.map((p) => <Item key={p.slug} to={`/produits/${p.slug}`} icon={p.icon} title={p.name} text={p.short} />)}
             </Dropdown>
-            <Dropdown id="u" label={nav.usecases} wide open={open} setOpen={setOpen}>
+            <Dropdown id="u" label={nav.usecases} open={open} setOpen={setOpen}>
               {usecases.map((u) => <Item key={u.slug} to={`/cas-usage/${u.slug}`} icon={u.icon} title={u.name} />)}
-              <Item to="/cas-usage" icon="LayoutGrid" title={nav.allUsecases} />
             </Dropdown>
             <Dropdown id="r" label={nav.resources} open={open} setOpen={setOpen}>
               {resources.map(([to, icon, label]) => <Item key={to} to={to} icon={icon} title={label} />)}
             </Dropdown>
           </nav>
           <div className="ts-header-end">
-            <span className="hide-md"><InterfaceLanguage /></span>
+            <span className="hide-md"><SiteLanguage /></span>
             <Link to="/login" className="plain hide-md" data-testid="home-signin">{nav.login}</Link>
-            <Link to="/join" className="ts-btn ts-btn-outline ts-btn-sm hide-md">{nav.tryIt}</Link>
             <Link to="/demo" className="ts-btn ts-btn-primary ts-btn-sm">{nav.demo}</Link>
-            <button className="ts-burger" aria-label="Menu" aria-expanded={mobile} onClick={() => setMobile(!mobile)}>{mobile ? <Icons.X /> : <Icons.Menu />}</button>
+            <button className="ts-burger" aria-label="Menu" aria-expanded={mobile} onClick={() => setMobile(!mobile)}>{mobile ? <X /> : <Menu />}</button>
           </div>
         </div>
         <div className={`ts-mobile ${mobile ? "open" : ""}`}>
-          {groups.map(([k, label, items]) => (
-            <React.Fragment key={k}><h5>{label}</h5>{items.map((p) => <Link key={p.slug} to={`/produits/${p.slug}`}>{p.name}</Link>)}</React.Fragment>
-          ))}
+          <h5>{nav.products}</h5>
+          {products.map((p) => <Link key={p.slug} to={`/produits/${p.slug}`}>{p.name}</Link>)}
           <h5>{nav.usecases}</h5>
           {usecases.map((u) => <Link key={u.slug} to={`/cas-usage/${u.slug}`}>{u.name}</Link>)}
           <h5>{nav.resources}</h5>
           {resources.map(([to, , label]) => <Link key={to} to={to}>{label}</Link>)}
+          <Link to="/join">{nav.tryIt}</Link>
           <Link to="/login">{nav.login}</Link>
-          <div style={{ paddingTop: 10 }}><InterfaceLanguage /></div>
+          <div style={{ paddingTop: 10 }}><SiteLanguage /></div>
         </div>
       </header>
       <main id="main">{children}</main>
       <footer className="ts-footer">
         <div className="ts-wrap">
-          <div className="ts-footer-grid five">
-            <div><Logo /><p style={{ marginTop: 14 }}>{c.footerTag}</p><Link to="/demo" className="ts-btn ts-btn-white ts-btn-sm" style={{ marginTop: 6 }}>{nav.demo}</Link></div>
-            <div><h4>{cats.live}</h4><ul>{groups[0][2].concat(groups[1][2]).map((p) => <li key={p.slug}><Link to={`/produits/${p.slug}`}>{p.name}</Link></li>)}</ul></div>
-            <div><h4>{nav.products}</h4><ul>{groups[2][2].concat(groups[3][2]).map((p) => <li key={p.slug}><Link to={`/produits/${p.slug}`}>{p.name}</Link></li>)}</ul></div>
+          <div className="ts-footer-grid">
+            <div><Logo /><p style={{ marginTop: 14 }}>{c.footerTag}</p></div>
+            <div><h4>{nav.products}</h4><ul>{products.map((p) => <li key={p.slug}><Link to={`/produits/${p.slug}`}>{p.name}</Link></li>)}</ul></div>
             <div><h4>{nav.usecases}</h4><ul>{usecases.map((u) => <li key={u.slug}><Link to={`/cas-usage/${u.slug}`}>{u.name}</Link></li>)}</ul></div>
             <div><h4>{nav.resources}</h4><ul>{resources.map(([to, , label]) => <li key={to}><Link to={to}>{label}</Link></li>)}</ul></div>
-            <div><h4>{c.company}</h4><ul><li><Link to="/demo">{nav.contact}</Link></li><li><Link to="/login">{nav.login}</Link></li><li><Link to="/join">{nav.tryIt}</Link></li></ul></div>
+            <div><h4>{c.company}</h4><ul><li><Link to="/demo">{nav.contact}</Link></li><li><Link to="/join">{nav.tryIt}</Link></li><li><Link to="/login">{nav.login}</Link></li></ul></div>
           </div>
           <div className="ts-footer-end"><span>© {new Date().getFullYear()} Syntova. {c.rights}</span><span>{c.made}</span></div>
         </div>
       </footer>
     </div>
   );
-}
-
-// Product screenshot framed like a monitor or a phone.
-export function Shot({ name, alt, kind }) {
-  const phone = kind === "phone" || name === "phone" || name === "captions";
-  return phone
-    ? <div className="ts-phone" style={{ position: "relative", width: "100%", maxWidth: 300 }}><img src={img(name)} alt={alt} loading="lazy" width="390" height="844" /></div>
-    : <div className="ts-monitor"><img src={img(name)} alt={alt} loading="lazy" /></div>;
 }
