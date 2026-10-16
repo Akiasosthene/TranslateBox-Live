@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Copy, Eye, EyeOff, RefreshCw, Radio } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Copy, Eye, EyeOff, RefreshCw, Radio, Server, Square, Play } from "lucide-react";
 import { useLocale } from "../../context/LocaleContext";
 import { useTranslationSession } from "../../context/TranslationContext";
 
@@ -14,7 +14,16 @@ const GUIDES = [
 // Audio from a meeting or a stream instead of the local microphone.
 export const StreamSourcePanel = () => {
   const { t } = useLocale();
-  const { eventInfo, ingestInfo, streamState, rotateIngest, active } = useTranslationSession();
+  const { eventInfo, ingestInfo, streamState, rotateIngest, active, broadcasting, serverState, refreshServer, startServer, stopServer } = useTranslationSession();
+  const [busy, setBusy] = useState(false);
+  const running = !!serverState?.server?.running;
+  useEffect(() => {
+    if (!eventInfo) return undefined;
+    refreshServer().catch(() => {});
+    const iv = setInterval(() => refreshServer().catch(() => {}), running ? 4000 : 15000);
+    return () => clearInterval(iv);
+  }, [eventInfo, running, refreshServer]);
+  const act = async (fn) => { setBusy(true); setErr(""); try { await fn(); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState("");
   const [err, setErr] = useState("");
@@ -44,6 +53,25 @@ export const StreamSourcePanel = () => {
             <button className={btn} onClick={() => copy("srt", ingestInfo.srt_url)}><Copy className="h-3.5 w-3.5" />{copied === "srt" ? t("Copied") : t("Copy")}</button></div>}
         </>
       )}
+      <div className="rounded-lg border border-violet-400/50 bg-violet-500/5 p-3 space-y-2" data-testid="server-mode">
+        <p className="text-sm font-semibold flex items-center gap-2"><Server className="h-4 w-4 text-violet-500" />{t("Run on the server (this console can be closed)")}</p>
+        <p className="text-xs text-slate-500">{t("The server pulls the stream and translates every language itself. Use it for long events or when no computer stays open.")}</p>
+        {running ? (
+          <>
+            <p className="text-xs" data-testid="server-status">
+              {serverState.server.audio ? t("Receiving the stream") : t("Waiting for the stream… start streaming from Zoom, Teams, Webex or OBS.")}
+              {" · "}{Object.entries(serverState.server.languages || {}).map(([l, v]) => `${l.toUpperCase()} ${t(v.state)} (${v.listeners})`).join(" · ")}
+              {serverState.server.cascade?.languages?.length ? ` · ${t("Text + voice")}: ${serverState.server.cascade.languages.map((l) => l.toUpperCase()).join(", ")}` : ""}
+            </p>
+            <button className={`${btn} border-rose-400 text-rose-600`} disabled={busy} onClick={() => act(stopServer)} data-testid="server-stop"><Square className="h-3.5 w-3.5" />{t("Stop on the server")}</button>
+          </>
+        ) : (
+          <>
+            <button className={`${btn} border-violet-500 text-violet-700 dark:text-violet-300`} disabled={busy || active || broadcasting} onClick={() => act(startServer)} data-testid="server-start"><Play className="h-3.5 w-3.5" />{t("Start on the server")}</button>
+            {(active || broadcasting) && <p className="text-xs text-slate-500">{t("Stop the broadcast from this console first.")}</p>}
+          </>
+        )}
+      </div>
       {err && <p className="text-xs text-rose-500">{t(err)}</p>}
       <details className="text-xs text-slate-600 dark:text-slate-400">
         <summary className="cursor-pointer font-semibold">{t("How to send a meeting or a stream")}</summary>

@@ -3,6 +3,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { OperatorBroadcaster, WS_BASE } from "../lib/broadcast";
 import { ExtraChannel } from "../lib/extraChannel";
 import { SourceChannel } from "../lib/sourceChannel";
+import { isCascade } from "../lib/languages";
 import { usePersistentState } from "./usePersistentState";
 
 // Broadcast: the operator's translated program audio is fanned out to many
@@ -54,7 +55,43 @@ export function useBroadcast({
     setChannels(list);
   }, []);
 
+  // Text-pipeline languages (translated + voiced on the server from the source sentences).
+  const cascadeRef = useRef(null); // { id, timer }
+  const [cascadeLive, setCascadeLive] = useState(false);
+  const stopCascade = useCallback(() => {
+    const c = cascadeRef.current;
+    cascadeRef.current = null;
+    setCascadeLive(false);
+    if (!c) return;
+    clearInterval(c.timer);
+    operatorFetch(`${API}/events/${encodeURIComponent(c.id)}/cascade/stop`, { method: "POST" }).catch(() => {});
+  }, [API]);
+  const startCascade = useCallback(async (event) => {
+    const langs = (event.targets || []).filter((l) => isCascade(l) && !(event.human || []).includes(l));
+    if (!langs.length) return;
+    const cfg = voiceCfgRef.current || {};
+    const res = await operatorFetch(`${API}/events/${encodeURIComponent(event.id)}/cascade/start`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice: cfg.voice || "marin", style: (cfg.style || "").slice(0, 400) }),
+    });
+    if (!res.ok) throw new Error(await responseError(res, "The text-pipeline languages could not start."));
+    const ping = () => operatorFetch(`${API}/events/${encodeURIComponent(event.id)}/cascade/segment`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "" }),
+    }).catch(() => {});
+    cascadeRef.current = { id: event.id, timer: setInterval(ping, 60000) };
+    setCascadeLive(true);
+  }, [API]);
+  const sendSourceSegment = useCallback((text, speaker) => {
+    const c = cascadeRef.current;
+    if (!c || !text?.trim()) return;
+    operatorFetch(`${API}/events/${encodeURIComponent(c.id)}/cascade/segment`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.trim().slice(0, 2000), speaker: speaker || null }),
+    }).catch(() => {});
+  }, [API]);
+
   const stopExtras = useCallback(() => {
+    stopCascade();
     sourceRef.current?.stop();
     sourceRef.current = null;
     for (const ch of extrasRef.current.values()) {
@@ -64,12 +101,13 @@ export function useBroadcast({
     extrasRef.current.clear();
     channelsKeyRef.current = "[]";
     setChannels([]);
-  }, []);
+  }, [stopCascade]);
 
   const startExtras = useCallback(async (event) => {
     stopExtras();
     const human = new Set(event.human || []);
-    const langs = (event.targets || [event.target]).slice(1).filter((l) => !human.has(l));
+    const langs = (event.targets || [event.target]).slice(1).filter((l) => !human.has(l) && !isCascade(l));
+    startCascade(event).catch((e) => setError(e.message));
     const generation = generationRef.current;
     archiveRef.current.clear();
     if (human.size) {
@@ -97,7 +135,7 @@ export function useBroadcast({
       }
     });
     snapshotChannels();
-  }, [API, setError, snapshotChannels, stopExtras]);
+  }, [API, setError, snapshotChannels, stopExtras, startCascade]);
 
   const _attach = useCallback(async (event) => {
     const generation = ++generationRef.current;
@@ -287,6 +325,6 @@ export function useBroadcast({
     savedEvents, catalogError, catalogLoading, refreshEvents, resumeEvent, newEvent,
     eventInfo, listeners, primaryListeners, broadcasting, channels, extrasRef, archiveRef,
     setChannelsMicMuted, rotateInterpreterCode, updateBranding, publishSummary, unpublishSummary,
-    captionsToListeners, setCaptionsToListeners,
+    captionsToListeners, setCaptionsToListeners, cascadeLive, sendSourceSegment,
   };
 }

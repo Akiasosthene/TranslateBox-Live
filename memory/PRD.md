@@ -113,3 +113,10 @@ Applied code-review fixes without changing behavior:
 - Mobile: Capacitor 8 project (`mobile/`), Android debug APK and iOS simulator build in GitHub Actions.
 - Out of scope: meeting bots (vendor app registration), multi-tenant organizations, billing.
 
+## V3.1 (2026-10) — More languages, server-side translation
+- `backend/live_engine.py`: Resampler (24↔16 kHz), real-time Pacer, LangOutput (room publishing, captions, segments, archive), CascadeHub (one Responses call per sentence for all text-pipeline languages + TTS), RealtimeLink (server-side OpenAI realtime translation WebSocket), ServerSession (ffmpeg 24 kHz from MediaMTX → links, booth floor feed, usage, idle stop).
+- 42 cascade languages as extras (`CASCADE_LANGUAGES`); main language must be a realtime one.
+- Console mode: console posts finished source sentences to `/cascade/segment`; `/cascade/start|stop`, ping every 60 s, idle stop after `CASCADE_IDLE_SECONDS`.
+- Server mode: `/events/{id}/server/start|stop|speaker`, status `GET /events/{id}/server`; `OPENAI_REALTIME_WS_URL` override (tests, proxies).
+- Tested with a fake realtime server + MediaMTX + RTMP publisher end to end; not yet against the real OpenAI WebSocket.
+

@@ -17,7 +17,7 @@ Legend: ✅ equal or better · 🟡 partial · ❌ missing · ➕ TranslateBox o
 | Download the transcript as an attendee | "Save text" of the captions received | 🟡 (no timing for listeners) |
 | No app, no account | Same | ✅ |
 | Help panel | Built-in help | ✅ |
-| 50+ output languages | **13 output languages** (limit of `gpt-realtime-translate`); source language auto-detected | 🟡 **main remaining gap** |
+| 50+ output languages | 13 direct interpretation + 42 text-and-voice languages (≈2–4 s more delay) = 55 | ✅ |
 | — | Headphone test, wake lock, human-interpreter label, published AI summary | ➕ |
 
 ## Presenters / operators
@@ -66,7 +66,6 @@ Legend: ✅ equal or better · 🟡 partial · ❌ missing · ➕ TranslateBox o
 
 ## Remaining gaps and what they take
 
-1. **More output languages** — depends on OpenAI's realtime translation model. Option: a second pipeline (speech-to-text → text translation → TTS) for languages the realtime model lacks, with ~2–4 s more delay.
-2. **Meeting bots** — Zoom Meeting SDK / Teams bot framework / Google Meet Media API; needs app registration with each vendor.
-3. **Multi-tenant organizations and billing** — several client organizations on one server, payments.
-4. **Store publication** — signed Android release and iOS build on a Mac with an Apple Developer account.
+1. **Meeting bots** — Zoom Meeting SDK / Teams bot framework / Google Meet Media API; needs app registration with each vendor.
+2. **Multi-tenant organizations and billing** — several client organizations on one server, payments.
+3. **Store publication** — signed Android release and iOS build on a Mac with an Apple Developer account.

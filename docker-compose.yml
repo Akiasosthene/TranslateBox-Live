@@ -30,6 +30,8 @@ services:
       INGEST_RTMP_PORT: ${INGEST_RTMP_PORT:-1935}
       INGEST_SRT_PORT: ${INGEST_SRT_PORT:-8890}
       INGEST_RTMPS_PORT: ${INGEST_RTMPS_PORT:-}
+      OPENAI_CASCADE_MODEL: ${OPENAI_CASCADE_MODEL:-}
+      SERVER_IDLE_MINUTES: ${SERVER_IDLE_MINUTES:-30}
     volumes:
       - event_data:/data
     expose:

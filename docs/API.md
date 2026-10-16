@@ -89,6 +89,20 @@ Only for sessions with `archive_transcripts: true`. The operator console uploads
 
 The console reads the stream on `wss://<domain>/api/ws/{id}?role=ingest` (first message `{"type":"auth","bearer":"<token>"}`): JSON `{type:"ingest", live}` and binary PCM16 16 kHz frames.
 
+## Server-side live engines
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/events/{id}/server/start` | Translate the event's RTMP/SRT stream on the server `{voice, style, instructions}` |
+| `GET` | `/events/{id}/server` | Status: running, audio, per-language state and listeners, text-pipeline queue |
+| `POST` | `/events/{id}/server/speaker` | `{name}` speaker label for captions and transcripts |
+| `POST` | `/events/{id}/server/stop` | Stop |
+| `POST` | `/events/{id}/cascade/start` | Console mode: start the text-pipeline languages `{voice, style}` |
+| `POST` | `/events/{id}/cascade/segment` | `{text, speaker}` one finished source sentence (empty text = keep-alive) |
+| `POST` | `/events/{id}/cascade/stop` | Stop |
+
+Text-pipeline ("cascade") languages: `ar sw ln ur ta pa bn tr pl nl uk ro el cs sv da fi no he fa th ms tl am yo ha ig ht rw so zu hu bg hr sr sk ne mr te gu kn ml` — allowed as extra languages only.
+
 ## Activity and settings
 
 | Method | Path | Purpose |

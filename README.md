@@ -80,6 +80,11 @@ docker compose up -d --build
 - **Voix doublée** : pour chaque langue traduite, un fichier WAV avec la voix studio, calé sur le minutage de la session, pour doubler une vidéo enregistrée.
 - **Connexion SSO (Google, Microsoft…)** : renseigner `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOWED` (courriels ou `@domaine`) et `PUBLIC_ORIGIN`, puis déclarer `https://<domaine>/api/auth/sso/callback` comme URI de redirection chez le fournisseur. Le code opérateur reste valable. Les sessions SSO durent `SSO_SESSION_HOURS` (12 h) et sont perdues au redémarrage du backend.
 
+## Plus de langues et traduction sur le serveur (V3.1)
+
+- **55 langues d’écoute** : les 13 langues d’interprétation directe, plus 42 langues « texte + voix » (arabe, swahili, lingala, ourdou, turc, néerlandais, haoussa, yoruba, créole haïtien, kinyarwanda…). À la création de l’événement : « Plus de langues ». Pour ces langues, le serveur traduit chaque phrase terminée (modèle `OPENAI_CASCADE_MODEL`, par défaut `OPENAI_SUMMARY_MODEL`) et la lit avec la voix studio choisie : environ 2 à 4 s de décalage de plus. La langue principale reste une langue d’interprétation directe. La qualité de voix varie selon la langue : à faire vérifier par un locuteur natif.
+- **Traduction sur le serveur** : console → Source audio → Réunion ou flux → « Démarrer sur le serveur ». Le serveur récupère le flux RTMP/SRT et traduit toutes les langues lui-même ; la console peut être fermée. Les noms d’orateur, l’archive des transcriptions, la cabine des interprètes humains et le décompte des minutes fonctionnent aussi. Arrêt automatique après `SERVER_IDLE_MINUTES` (30) sans son. Une seule diffusion à la fois par événement (console ou serveur).
+
 ## Plateforme (V3) : comptes, flux RTMP/SRT, apps mobiles
 
 - **Parcours** : `/` accueil public avec « Rejoindre » par code ; `/login` connexion ; `/present` console ; `/portal/sessions`, `/portal/transcripts`, `/portal/activity`, `/portal/users`, `/portal/account`. Menu en haut de l’app, barre de contrôle du direct collée en haut de la console.

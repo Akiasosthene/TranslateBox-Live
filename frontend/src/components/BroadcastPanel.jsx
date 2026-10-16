@@ -2,7 +2,7 @@ import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Radio, Users, QrCode as QrIcon, Play, Square, X, Monitor, Languages, UserRound, ImagePlus, Gauge } from "lucide-react";
-import { TARGET_LANGUAGES, getTarget } from "../lib/languages";
+import { TARGET_LANGUAGES, CASCADE_LANGUAGES, getTarget, isCascade } from "../lib/languages";
 import { useTranslationSession } from "../context/TranslationContext";
 
 export const BroadcastPanel = () => {
@@ -12,7 +12,7 @@ export const BroadcastPanel = () => {
     savedEvents, catalogError, catalogLoading, refreshEvents, resumeEvent, newEvent,
     listeners, broadcasting, active, captionsToListeners, setCaptionsToListeners, status, level, metrics,
     targetLang, extraLangs, setExtraLangs, channels, primaryListeners,
-    humanLangs, setHumanLangs, rotateInterpreterCode, fetchUsage,
+    humanLangs, setHumanLangs, rotateInterpreterCode, fetchUsage, cascadeLive,
   } = useTranslationSession();
   const [logo, setLogo] = useState("");
   const [sponsor, setSponsor] = useState("");
@@ -31,6 +31,7 @@ export const BroadcastPanel = () => {
   const eventLangs = eventInfo ? (eventInfo.targets || [eventInfo.target]) : [];
   const channelState = (lang, i) => {
     if (i === 0) return { live: broadcasting, listeners: primaryListeners, state: broadcasting ? "live" : "idle" };
+    if (isCascade(lang)) { const c = eventInfo?.channels?.find((x) => x.lang === lang); return { live: broadcasting && cascadeLive, listeners: c?.listeners || 0, state: "cascade" }; }
     if ((eventInfo?.human || []).includes(lang)) return { live: false, listeners: eventInfo.channels?.find((c) => c.lang === lang)?.listeners || 0, state: "human" };
     const ch = channels.find((c) => c.lang === lang);
     return { live: ch?.state === "live", listeners: ch?.listeners || 0, state: ch?.state || "idle" };
@@ -100,12 +101,24 @@ export const BroadcastPanel = () => {
                   className={`px-3 py-1.5 rounded-full border text-sm transition-colors disabled:opacity-40 ${on ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-slate-300 dark:border-slate-700 hover:border-slate-400"}`}>{l.flag} {t(l.name)}</button>;
               })}
             </div>
+            <details className="text-sm" data-testid="cascade-languages" open={chosenExtras.some(isCascade)}>
+              <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">{t("More languages (text translation + studio voice, about 2-4 s later)")}</summary>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {CASCADE_LANGUAGES.map((l) => {
+                  const on = chosenExtras.includes(l.code);
+                  return <button key={l.code} type="button" aria-pressed={on} data-testid={`extra-lang-${l.code}`} onClick={() => toggleExtra(l.code)} disabled={!on && chosenExtras.length >= MAX_EXTRA}
+                    className={`px-2.5 py-1 rounded-full border text-xs transition-colors disabled:opacity-40 ${on ? "border-violet-500 bg-violet-500/10 text-violet-700 dark:text-violet-300" : "border-slate-300 dark:border-slate-700"}`}>{t(l.name)} · {l.native}</button>;
+                })}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">{t("Voice quality varies by language; check it with a native speaker before an important event.")}</p>
+            </details>
             {chosenExtras.length > 0 && (
               <div className="space-y-1" data-testid="human-languages">
                 <p className="text-xs text-slate-500">{t("Who interprets each extra language?")}</p>
                 <div className="flex flex-wrap gap-2">
                   {chosenExtras.map((code) => {
                     const human = (humanLangs || []).includes(code);
+                    if (isCascade(code)) return <span key={code} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-400/60 text-xs text-violet-700 dark:text-violet-300">{code.toUpperCase()} · {t("Text + voice")}</span>;
                     return <button key={code} type="button" aria-pressed={human} data-testid={`human-lang-${code}`} onClick={() => toggleHuman(code)}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs ${human ? "border-sky-500 bg-sky-500/10 text-sky-700 dark:text-sky-300" : "border-slate-300 dark:border-slate-700"}`}>
                       {getTarget(code).flag} {code.toUpperCase()} · {human ? <><UserRound className="h-3.5 w-3.5" />{t("Human interpreter")}</> : t("AI")}

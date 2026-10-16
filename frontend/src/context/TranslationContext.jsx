@@ -107,6 +107,9 @@ export function TranslationProvider({ children }) {
   speakerRef.current = speaker;
   const labelledRef = useRef({ target: "" });
   const lastActivityRef = useRef(Date.now());
+  // Finished source sentences feed the server's text-pipeline languages.
+  const sourceSegmentRef = useRef("");
+  const sourceSinkRef = useRef(() => {});
   const targetLangRef = useRef(targetLang);
   targetLangRef.current = targetLang;
   // Timed transcripts for subtitle export and summaries (tab memory only).
@@ -125,6 +128,10 @@ export function TranslationProvider({ children }) {
           lastActivityRef.current = Date.now();
           const rec = recordersRef.current[side];
           if (rec) { if (segmentBreak) rec.end(); else rec.delta(delta, speakerRef.current || null); }
+          if (side === "source") {
+            if (segmentBreak) { const text = sourceSegmentRef.current; sourceSegmentRef.current = ""; if (text.trim()) sourceSinkRef.current(text, speakerRef.current || null); }
+            else sourceSegmentRef.current = (sourceSegmentRef.current + (delta || "")).slice(-2000);
+          }
           // Label the caption when the speaker changes, at the start of a segment.
           if (side === "target" && !segmentBreak && delta && primarySegmentRef.current === "" && speakerRef.current && labelledRef.current.target !== speakerRef.current) {
             labelledRef.current.target = speakerRef.current;
@@ -377,6 +384,8 @@ export function TranslationProvider({ children }) {
     onExtraSegment: (lang, text) => relayRef.current.push(lang, text),
   });
 
+  sourceSinkRef.current = broadcast.sendSourceSegment;
+
   // Push-to-talk and the mic button gate every channel that uses the microphone.
   const setMicMuted = useCallback((muted) => {
     engineRef.current.setInputMuted(muted);
@@ -464,6 +473,38 @@ export function TranslationProvider({ children }) {
     setIngestInfo(await fetchIngest(eventIdForStream, true));
   }, [eventIdForStream]);
 
+  // Console-free mode: the server pulls the stream and translates every language.
+  const [serverState, setServerState] = useState(null);
+  const refreshServer = useCallback(async () => {
+    if (!eventIdForStream) { setServerState(null); return null; }
+    const res = await operatorFetch(`${API}/events/${encodeURIComponent(eventIdForStream)}/server`);
+    if (!res.ok) throw new Error(await responseError(res, "Server status unavailable."));
+    const data = await res.json();
+    setServerState(data);
+    return data;
+  }, [eventIdForStream]);
+  const startServer = useCallback(async () => {
+    if (!eventIdForStream) throw new Error("Create or resume an event first: the stream key belongs to the event.");
+    const instructions = (compileInstructions({ modeKey, customText: customInstructions, targetName: getTarget(targetLang).name, profile }) + boostLine).slice(0, 6000);
+    const res = await operatorFetch(`${API}/events/${encodeURIComponent(eventIdForStream)}/server/start`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice: studioVoice, style: (voiceStyle || "").slice(0, 400), instructions }),
+    });
+    if (!res.ok) throw new Error(await responseError(res, "The server could not start the translation."));
+    await refreshServer();
+  }, [eventIdForStream, modeKey, customInstructions, targetLang, profile, boostLine, studioVoice, voiceStyle, refreshServer]);
+  const stopServer = useCallback(async () => {
+    if (!eventIdForStream) return;
+    await operatorFetch(`${API}/events/${encodeURIComponent(eventIdForStream)}/server/stop`, { method: "POST" });
+    await refreshServer();
+  }, [eventIdForStream, refreshServer]);
+  useEffect(() => {
+    if (!serverState?.server?.running || !eventIdForStream) return;
+    operatorFetch(`${API}/events/${encodeURIComponent(eventIdForStream)}/server/speaker`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: speaker }),
+    }).catch(() => {});
+  }, [speaker, serverState?.server?.running, eventIdForStream]);
+
   // Server archive (opt-in per event): upload every minute and when stopping.
   const archiveNow = useCallback(async () => {
     const ev = broadcast.eventInfo;
@@ -522,7 +563,7 @@ export function TranslationProvider({ children }) {
     ...broadcast,
     toggleTranslationMute, toggleInputMute: () => setMicMuted(!inputMutedRef.current), testInput, stopTest,
     setMicMuted, pttEnabled, setPttEnabled, autoStopMinutes, setAutoStopMinutes,
-    setCaptureSource, streamState, ingestInfo, rotateIngest,
+    setCaptureSource, streamState, ingestInfo, rotateIngest, serverState, refreshServer, startServer, stopServer,
     idleStopMinutes, setIdleStopMinutes, pttKey, setPttKey, speaker, setSpeaker, archiveNow, archiveState,
     relayDestinations, addRelay, removeRelay, fetchUsage, loadLibrary, saveLibrary, dub, humanLangs, setHumanLangs,
     clearError: () => setError(null),

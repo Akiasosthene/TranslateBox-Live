@@ -69,7 +69,31 @@ export const SOURCE_LANGUAGES = [
     .map((name) => ({ code: name, name, native: nat(name), flag: "" })),
 ];
 
-export const getTarget = (code) => TARGET_LANGUAGES.find((l) => l.code === code) || TARGET_LANGUAGES[0];
+// Extra listener languages without direct interpretation: the server translates
+// each sentence as text and speaks it with a studio voice (about 2-4 s later).
+const CASCADE_NATIVE = {
+  ar: "العربية", sw: "Kiswahili", ln: "Lingála", ur: "اردو", ta: "தமிழ்", pa: "ਪੰਜਾਬੀ", bn: "বাংলা", tr: "Türkçe",
+  pl: "Polski", nl: "Nederlands", uk: "Українська", ro: "Română", el: "Ελληνικά", cs: "Čeština", sv: "Svenska",
+  da: "Dansk", fi: "Suomi", no: "Norsk", he: "עברית", fa: "فارسی", th: "ไทย", ms: "Bahasa Melayu", tl: "Filipino",
+  am: "አማርኛ", yo: "Yorùbá", ha: "Hausa", ig: "Igbo", ht: "Kreyòl ayisyen", rw: "Kinyarwanda", so: "Soomaali",
+  zu: "isiZulu", hu: "Magyar", bg: "Български", hr: "Hrvatski", sr: "Српски", sk: "Slovenčina", ne: "नेपाली",
+  mr: "मराठी", te: "తెలుగు", gu: "ગુજરાતી", kn: "ಕನ್ನಡ", ml: "മലയാളം",
+};
+const CASCADE_NAMES = {
+  ar: "Arabic", sw: "Swahili", ln: "Lingala", ur: "Urdu", ta: "Tamil", pa: "Punjabi", bn: "Bengali", tr: "Turkish",
+  pl: "Polish", nl: "Dutch", uk: "Ukrainian", ro: "Romanian", el: "Greek", cs: "Czech", sv: "Swedish", da: "Danish",
+  fi: "Finnish", no: "Norwegian", he: "Hebrew", fa: "Persian", th: "Thai", ms: "Malay", tl: "Filipino", am: "Amharic",
+  yo: "Yoruba", ha: "Hausa", ig: "Igbo", ht: "Haitian Creole", rw: "Kinyarwanda", so: "Somali", zu: "Zulu",
+  hu: "Hungarian", bg: "Bulgarian", hr: "Croatian", sr: "Serbian", sk: "Slovak", ne: "Nepali", mr: "Marathi",
+  te: "Telugu", gu: "Gujarati", kn: "Kannada", ml: "Malayalam",
+};
+export const CASCADE_LANGUAGES = Object.keys(CASCADE_NAMES)
+  .map((code) => ({ code, name: CASCADE_NAMES[code], native: CASCADE_NATIVE[code] || CASCADE_NAMES[code], flag: "🗣️", cascade: true }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+export const ALL_LISTENER_LANGUAGES = [...TARGET_LANGUAGES, ...CASCADE_LANGUAGES];
+export const isCascade = (code) => CASCADE_LANGUAGES.some((l) => l.code === code);
+
+export const getTarget = (code) => ALL_LISTENER_LANGUAGES.find((l) => l.code === code) || TARGET_LANGUAGES[0];
 export const getSource = (code) => SOURCE_LANGUAGES.find((l) => l.code === code) || SOURCE_LANGUAGES[0];
 export const sourceLabel = (code) => (code === "auto" ? "Detected" : getSource(code).name);
 

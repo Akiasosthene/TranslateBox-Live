@@ -27,16 +27,16 @@ def read_password() -> str:
     return hashlib.sha256(("ingest-read:" + seed).encode()).hexdigest()[:32]
 
 
-def ffmpeg_args(stream_key: str) -> list:
+def ffmpeg_args(stream_key: str, rate: int = 16000) -> list:
     src = f"{internal_url()}/live/{stream_key}?user=tb&pass={read_password()}"
     return [
         os.environ.get("FFMPEG_BIN", "ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error",
-        "-fflags", "nobuffer", "-flags", "low_delay", "-rw_timeout", "8000000",
-        "-i", src, "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1",
+        "-fflags", "nobuffer", "-flags", "low_delay", "-probesize", "32768", "-analyzeduration", "500000", "-rw_timeout", "8000000",
+        "-i", src, "-vn", "-sn", "-dn", "-ac", "1", "-ar", str(rate), "-f", "s16le", "pipe:1",
     ]
 
 
-async def relay(stream_key: str, send_bytes, send_status, stopped: asyncio.Event, retry_s: float = 3.0):
+async def relay(stream_key: str, send_bytes, send_status, stopped: asyncio.Event, retry_s: float = 1.5):
     """Pull the stream until `stopped` is set; reconnect while nobody publishes."""
     live = None
     while not stopped.is_set():

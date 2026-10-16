@@ -27,6 +27,7 @@ import anyio
 from event_store import EventStore, KVStore
 import accounts
 import ingest
+import live_engine
 
 
 ROOT_DIR = Path(__file__).parent
@@ -68,6 +69,20 @@ def _http() -> "httpx.AsyncClient":
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=60),
         )
     return _http_client
+
+# Languages without direct realtime interpretation: translated as text and
+# spoken with a studio voice on the server (adds about 2-4 s of delay).
+CASCADE_LANGUAGES = {
+    "ar": "Arabic", "sw": "Swahili", "ln": "Lingala", "ur": "Urdu", "ta": "Tamil", "pa": "Punjabi",
+    "bn": "Bengali", "tr": "Turkish", "pl": "Polish", "nl": "Dutch", "uk": "Ukrainian", "ro": "Romanian",
+    "el": "Greek", "cs": "Czech", "sv": "Swedish", "da": "Danish", "fi": "Finnish", "no": "Norwegian",
+    "he": "Hebrew", "fa": "Persian", "th": "Thai", "ms": "Malay", "tl": "Filipino", "am": "Amharic",
+    "yo": "Yoruba", "ha": "Hausa", "ig": "Igbo", "ht": "Haitian Creole", "rw": "Kinyarwanda", "so": "Somali",
+    "zu": "Zulu", "hu": "Hungarian", "bg": "Bulgarian", "hr": "Croatian", "sr": "Serbian", "sk": "Slovak",
+    "ne": "Nepali", "mr": "Marathi", "te": "Telugu", "gu": "Gujarati", "kn": "Kannada", "ml": "Malayalam",
+}
+LANGUAGE_NAMES.update(CASCADE_LANGUAGES)
+CASCADE_MODEL = os.environ.get("OPENAI_CASCADE_MODEL", "") or SUMMARY_MODEL
 
 # The 13 output languages supported by gpt-realtime-translate.
 SUPPORTED_OUTPUT_LANGUAGES = {
@@ -811,9 +826,11 @@ def _check_logo(logo):
 
 
 def _resolve_targets(primary: str, extra: list) -> list:
-    targets = []
-    for lang in [primary, *extra]:
-        lang = _resolve_target_language(lang)
+    targets = [_resolve_target_language(primary)]
+    for lang in extra:
+        lang = (lang or "").lower()
+        if lang not in CASCADE_LANGUAGES:
+            lang = _resolve_target_language(lang)
         if lang not in targets:
             targets.append(lang)
     if len(targets) > MAX_LANGUAGES:
@@ -1535,6 +1552,215 @@ async def _run_ingest(websocket: WebSocket, eid: str):
     finally:
         stopped.set()
         watcher.cancel()
+
+
+# ---------------------------------------------------------------------------
+# Server-side engines: cascade languages and console-free stream translation
+# ---------------------------------------------------------------------------
+SERVER_SESSIONS = {}   # eid -> live_engine.ServerSession
+CASCADES = {}          # eid -> live_engine.CascadeHub (console mode)
+
+
+async def _tts_pcm(text: str, voice: str, style: str) -> bytes:
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    payload = {"model": TTS_MODEL, "voice": voice if voice in STUDIO_VOICES else "marin", "input": text[:1200], "response_format": "pcm"}
+    if style:
+        payload["instructions"] = style[:400]
+    resp = await _http().post(OPENAI_SPEECH_URL, headers=_openai_headers(api_key), json=payload, timeout=30.0)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"speech {resp.status_code}")
+    return resp.content
+
+
+async def _translate_many(text: str, langs: list) -> dict:
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    names = {lang: LANGUAGE_NAMES.get(lang, lang) for lang in langs}
+    payload = {
+        "model": CASCADE_MODEL,
+        "instructions": ("You are a live interpreter. Translate the speaker's sentence into each requested language. "
+                         "Natural spoken style, faithful, no additions, keep names and numbers. Languages: "
+                         + ", ".join(f"{k} = {v}" for k, v in names.items())),
+        "input": text,
+        "text": {"format": {"type": "json_schema", "name": "live_translation", "strict": True, "schema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {lang: {"type": "string"} for lang in langs}, "required": list(langs)}}},
+        "store": False,
+    }
+    resp = await _http().post(OPENAI_RESPONSES_URL, headers=_openai_headers(api_key), json=payload, timeout=30.0)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"translate {resp.status_code}")
+    data = json.loads(_response_text(resp.json()))
+    return {lang: str(data.get(lang, "")) for lang in langs}
+
+
+def _realtime_session_update(lang: str, instructions: str) -> dict:
+    session = _build_session_config(lang, "far_field")["session"]
+    session.pop("model", None)
+    if instructions:
+        session["instructions"] = instructions[:MAX_INSTRUCTIONS_LEN]
+    return {"type": "session.update", "session": session}
+
+
+async def _realtime_connect():
+    from websockets.asyncio.client import connect
+    base = os.environ.get("OPENAI_REALTIME_WS_URL", "wss://api.openai.com/v1/realtime/translations")
+    url = f"{base}?model={REALTIME_MODEL}"
+    return await connect(url, additional_headers=_openai_headers(os.environ.get("OPENAI_API_KEY", "")),
+                         max_size=8 * 1024 * 1024, open_timeout=15, ping_interval=20)
+
+
+def _live_stopped(eid: str, reason: str):
+    kind = reason.split(":", 1)[0]
+    if kind == "server":
+        SERVER_SESSIONS.pop(eid, None)
+    elif kind == "cascade" and eid in CASCADES:
+        CASCADES.pop(eid, None)
+    logger.info("Live engine for %s stopped (%s)", eid, reason)
+
+
+def _live_deps(eid: str) -> live_engine.Deps:
+    return live_engine.Deps(
+        room=_room, fanout=_fanout, status=_broadcast_status,
+        captions_enabled=lambda e: bool((EVENTS.get(e) or {}).get("captions")),
+        record_usage=_record_usage, out_of_minutes=_out_of_minutes,
+        translate_many=_translate_many, tts=_tts_pcm,
+        save_transcript=_save_transcript, archive_enabled=lambda e: bool((EVENTS.get(e) or {}).get("archive")),
+        realtime_connect=_realtime_connect, session_update=_realtime_session_update,
+        ffmpeg_args=lambda: ingest.ffmpeg_args(_ingest_key(eid), rate=live_engine.OPENAI_RATE),
+        on_stopped=_live_stopped,
+    )
+
+
+def _cascade_langs(eid):
+    ev = EVENTS[eid]
+    return [l for l in _targets(eid) if l in CASCADE_LANGUAGES and l not in (ev.get("human") or [])]
+
+
+def _ai_langs(eid):
+    ev = EVENTS[eid]
+    return [l for l in _targets(eid) if l in SUPPORTED_OUTPUT_LANGUAGES and l not in (ev.get("human") or [])]
+
+
+def _live_preflight(eid):
+    _require_event(eid)
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise HTTPException(503, "The translation service is not configured on the server.")
+    if _out_of_minutes(eid):
+        raise HTTPException(402, "No translation minutes left on this account. Ask an administrator for more minutes.")
+    if USAGE_CAP_MINUTES and _month_minutes() >= USAGE_CAP_MINUTES:
+        raise HTTPException(402, "The monthly translation limit set by the administrator is reached.")
+
+
+class VoiceChoice(BaseModel):
+    voice: str = Field(default="marin", max_length=20)
+    style: str = Field(default="", max_length=400)
+
+
+class ServerStart(VoiceChoice):
+    instructions: str = Field(default="", max_length=MAX_INSTRUCTIONS_LEN)
+
+
+@api_router.post("/events/{eid}/server/start", dependencies=[Depends(require_operator)])
+async def server_start(eid: str, body: ServerStart):
+    """Translate the event's RTMP/SRT stream on the server: the console can be closed."""
+    _live_preflight(eid)
+    if not ingest.enabled():
+        raise HTTPException(400, "Stream input is not enabled on this server.")
+    if eid in SERVER_SESSIONS or eid in CASCADES:
+        raise HTTPException(409, "This event is already running on the server.")
+    if any(r["operator"] is not None for r in _event_rooms(eid)):
+        raise HTTPException(409, "This event is already broadcasting from a console. Stop it there first.")
+    ai, cascade = _ai_langs(eid), _cascade_langs(eid)
+    if not ai:
+        raise HTTPException(400, "The main language must be interpreted directly.")
+    deps = _live_deps(eid)
+    hub = live_engine.CascadeHub(eid, cascade, deps, body.voice.lower(), body.style, idle_timeout=10 ** 9) if cascade else None
+    session = live_engine.ServerSession(eid, ai, hub, deps, instructions=body.instructions.strip(),
+                                        idle_minutes=float(os.environ.get("SERVER_IDLE_MINUTES", "30")),
+                                        booth_room=bool(EVENTS[eid].get("human")))
+    SERVER_SESSIONS[eid] = session
+    await session.start()
+    return session.status()
+
+
+@api_router.get("/events/{eid}/server", dependencies=[Depends(require_operator)])
+async def server_status(eid: str):
+    _require_event(eid)
+    session = SERVER_SESSIONS.get(eid)
+    cascade = CASCADES.get(eid)
+    return {"server": session.status() if session else None, "cascade": cascade.status() if cascade else None,
+            "cascade_languages": _cascade_langs(eid), "ingest": ingest.enabled()}
+
+
+@api_router.post("/events/{eid}/server/stop", dependencies=[Depends(require_operator)])
+async def server_stop(eid: str):
+    _require_event(eid)
+    session = SERVER_SESSIONS.get(eid)
+    if session:
+        await session.stop("operator")
+    return {"stopped": bool(session)}
+
+
+class SpeakerName(BaseModel):
+    name: str = Field(default="", max_length=80)
+
+
+@api_router.post("/events/{eid}/server/speaker", dependencies=[Depends(require_operator)])
+async def server_speaker(eid: str, body: SpeakerName):
+    _require_event(eid)
+    name = body.name.strip() or None
+    for target in (SERVER_SESSIONS.get(eid),):
+        if target:
+            target.speaker = name
+    return {"speaker": name}
+
+
+@api_router.post("/events/{eid}/cascade/start", dependencies=[Depends(require_operator)])
+async def cascade_start(eid: str, body: VoiceChoice):
+    """Console mode: the server voices the text-pipeline languages from the console's source sentences."""
+    _live_preflight(eid)
+    langs = _cascade_langs(eid)
+    if not langs:
+        return {"running": False, "languages": []}
+    if eid in SERVER_SESSIONS:
+        raise HTTPException(409, "This event is already running on the server.")
+    hub = CASCADES.get(eid)
+    if hub and hub.running:
+        hub.voice, hub.style = body.voice.lower(), body.style
+        hub.ping()
+        return hub.status()
+    hub = live_engine.CascadeHub(eid, langs, _live_deps(eid), body.voice.lower(), body.style,
+                                 idle_timeout=float(os.environ.get("CASCADE_IDLE_SECONDS", "180")))
+    CASCADES[eid] = hub
+    await hub.start()
+    return hub.status()
+
+
+class CascadeSegment(BaseModel):
+    text: str = Field(default="", max_length=2000)
+    speaker: str | None = Field(default=None, max_length=80)
+
+
+@api_router.post("/events/{eid}/cascade/segment", dependencies=[Depends(require_operator)])
+async def cascade_segment(eid: str, body: CascadeSegment, request: Request):
+    if _rate_limited("cascade:" + eid, 240):
+        raise HTTPException(429, "Too many sentences. Slow down.")
+    hub = CASCADES.get(eid)
+    if not hub or not hub.running:
+        raise HTTPException(409, "The text-pipeline languages are not running for this event.")
+    if body.text.strip():
+        hub.submit(body.text, (body.speaker or "").strip() or None)
+    else:
+        hub.ping()
+    return {"queued": hub.queue.qsize()}
+
+
+@api_router.post("/events/{eid}/cascade/stop", dependencies=[Depends(require_operator)])
+async def cascade_stop(eid: str):
+    hub = CASCADES.get(eid)
+    if hub:
+        await hub.stop("operator")
+    return {"stopped": bool(hub)}
 
 
 def _require_event(eid):
