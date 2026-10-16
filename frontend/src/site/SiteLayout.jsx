@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ChevronDown, X, Menu, Presentation, GraduationCap, Landmark, Globe, Users, Mic, Languages, Radio, Smartphone, Headphones, Captions, FileText, Sparkles, Monitor, UserRound, Circle, ShieldCheck, CircleCheck, ArrowRight, Plus, Check, Waypoints, MonitorPlay, CalendarClock, AudioLines } from "lucide-react";
 import { useLocale } from "../context/LocaleContext";
-import { NAV, PRODUCTS, USECASES, COMMON, IMG, LANGS } from "./content";
+import { NAV, PRODUCTS, USECASES, COMMON, IMG, LANGS, PRICING, LEGAL } from "./content";
 import "./site.css";
 import { SyntovaMark } from "../components/SyntovaMark";
 
@@ -49,11 +49,19 @@ const Item = ({ to, icon, title, text }) => (
   <Link to={to} role="menuitem"><span><Icon name={icon} size={18} /></span><span><b>{title}</b>{text && <small>{text}</small>}</span></Link>
 );
 
-export function SiteLayout({ children }) {
+const setMeta = (attr, key, value) => {
+  let el = document.head.querySelector(`meta[${attr}="${key}"]`);
+  if (!el) { el = document.createElement("meta"); el.setAttribute(attr, key); document.head.appendChild(el); }
+  el.setAttribute("content", value);
+};
+
+export function SiteLayout({ children, title, description }) {
   const nav = useCopy(NAV);
   const products = useCopy(PRODUCTS);
   const usecases = useCopy(USECASES);
   const c = useCopy(COMMON);
+  const pricing = useCopy(PRICING);
+  const legal = useCopy(LEGAL);
   const { language } = useLocale();
   const [open, setOpen] = useState(null);
   const [mobile, setMobile] = useState(false);
@@ -67,6 +75,18 @@ export function SiteLayout({ children }) {
     window.scrollTo(0, 0);
   }, [location.pathname, location.hash]);
   useEffect(() => { document.documentElement.lang = language; }, [language]);
+  useEffect(() => {
+    const full = title ? `${title} | Syntova` : "Syntova";
+    document.title = full;
+    const desc = description || c.footerTag;
+    setMeta("name", "description", desc);
+    setMeta("property", "og:title", full);
+    setMeta("property", "og:description", desc);
+    setMeta("property", "og:url", window.location.origin + location.pathname);
+    let link = document.head.querySelector('link[rel="canonical"]');
+    if (!link) { link = document.createElement("link"); link.rel = "canonical"; document.head.appendChild(link); }
+    link.href = window.location.origin + location.pathname;
+  }, [title, description, c.footerTag, location.pathname]);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") setOpen(null); };
     window.addEventListener("keydown", onKey);
@@ -89,6 +109,7 @@ export function SiteLayout({ children }) {
             <Dropdown id="r" label={nav.resources} open={open} setOpen={setOpen}>
               {resources.map(([to, icon, label]) => <Item key={to} to={to} icon={icon} title={label} />)}
             </Dropdown>
+            <Link to="/tarifs" className="ts-menu-trigger">{pricing.title}</Link>
           </nav>
           <div className="ts-header-end">
             <span className="hide-md"><SiteLanguage /></span>
@@ -104,6 +125,7 @@ export function SiteLayout({ children }) {
           {usecases.map((u) => <Link key={u.slug} to={`/cas-usage/${u.slug}`}>{u.name}</Link>)}
           <h5>{nav.resources}</h5>
           {resources.map(([to, , label]) => <Link key={to} to={to}>{label}</Link>)}
+          <Link to="/tarifs">{pricing.title}</Link>
           <Link to="/join">{nav.tryIt}</Link>
           <Link to="/login">{nav.login}</Link>
           <div style={{ paddingTop: 10 }}><SiteLanguage /></div>
@@ -117,9 +139,9 @@ export function SiteLayout({ children }) {
             <div><h4>{nav.products}</h4><ul>{products.map((p) => <li key={p.slug}><Link to={`/produits/${p.slug}`}>{p.name}</Link></li>)}</ul></div>
             <div><h4>{nav.usecases}</h4><ul>{usecases.map((u) => <li key={u.slug}><Link to={`/cas-usage/${u.slug}`}>{u.name}</Link></li>)}</ul></div>
             <div><h4>{nav.resources}</h4><ul>{resources.map(([to, , label]) => <li key={to}><Link to={to}>{label}</Link></li>)}</ul></div>
-            <div><h4>{c.company}</h4><ul><li><Link to="/demo">{nav.contact}</Link></li><li><Link to="/join">{nav.tryIt}</Link></li><li><Link to="/login">{nav.login}</Link></li></ul></div>
+            <div><h4>{c.company}</h4><ul><li><Link to="/tarifs">{pricing.title}</Link></li><li><Link to="/demo">{nav.contact}</Link></li><li><Link to="/join">{nav.tryIt}</Link></li><li><Link to="/login">{nav.login}</Link></li></ul></div>
           </div>
-          <div className="ts-footer-end"><span>© {new Date().getFullYear()} Syntova. {c.rights}</span><span>{c.made}</span></div>
+          <div className="ts-footer-end"><span>© {new Date().getFullYear()} Syntova. {c.rights}</span><span className="ts-footer-legal"><Link to="/confidentialite">{legal.privacy}</Link><Link to="/conditions">{legal.terms}</Link><span>{c.made}</span></span></div>
         </div>
       </footer>
     </div>

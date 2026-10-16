@@ -386,3 +386,85 @@ export const COMMON = {
   pt: common("Saiba mais", "Funcionalidades", "Perguntas frequentes", "Produtos relacionados", "Do que você precisa", "Produtos recomendados", "Tradução, legendas e transcrições ao vivo para reuniões e eventos.", "Todos os direitos reservados.", "Empresa", "Feito em New Brunswick, Canadá", "Ver todas as funcionalidades", "Idioma"),
   de: common("Mehr erfahren", "Funktionen", "Häufige Fragen", "Ähnliche Produkte", "Was Sie brauchen", "Empfohlene Produkte", "Live-Übersetzung, Untertitel und Transkripte für Meetings und Events.", "Alle Rechte vorbehalten.", "Unternehmen", "Entwickelt in New Brunswick, Kanada", "Alle Funktionen ansehen", "Sprache"),
 };
+
+// Pricing: set a price string (e.g. "49 $ / mois") to show it; null shows "on quote".
+const plan = (id, price, name, tag, items) => ({ id, price, name, tag, items });
+const PRICES = { event: null, pro: null, enterprise: null };
+export const PRICING = {
+  fr: { title: "Tarifs", lead: "Des formules simples, selon la taille de vos événements.", quote: "Sur devis", cta: "Nous contacter", note: "L'usage de l'IA est facturé selon les minutes diffusées et le nombre de langues. Les langues confiées à des interprètes humains ne consomment pas de minutes.", popular: "Le plus choisi", plans: [
+    plan("event", PRICES.event, "Événement", "Pour un événement ponctuel.", ["1 événement", "Jusqu'à 5 langues", "Traduction vocale et sous-titres", "Affichage en salle", "Transcriptions"]),
+    plan("pro", PRICES.pro, "Pro", "Pour les équipes qui organisent souvent.", ["Événements illimités", "Comptes présentateurs", "Zoom, Teams, RTMP et SRT", "Résumés IA et doublage", "Rapports d'activité"]),
+    plan("enterprise", PRICES.enterprise, "Entreprise", "Pour les grandes organisations.", ["Tout de Pro", "Authentification unique", "Interprètes humains", "API et intégration web", "Accompagnement dédié"]),
+  ] },
+  en: { title: "Pricing", lead: "Simple plans that follow the size of your events.", quote: "Contact us", cta: "Talk to us", note: "AI usage is billed by minutes broadcast and number of languages. Languages handled by human interpreters use no minutes.", popular: "Most popular", plans: [
+    plan("event", PRICES.event, "Event", "For a one-off event.", ["1 event", "Up to 5 languages", "Voice translation and captions", "Room display", "Transcripts"]),
+    plan("pro", PRICES.pro, "Pro", "For teams that run events often.", ["Unlimited events", "Presenter accounts", "Zoom, Teams, RTMP and SRT", "AI summaries and dubbing", "Activity reports"]),
+    plan("enterprise", PRICES.enterprise, "Enterprise", "For large organizations.", ["Everything in Pro", "Single sign-on", "Human interpreters", "API and web embed", "Dedicated support"]),
+  ] },
+  es: { title: "Precios", lead: "Planes sencillos según el tamaño de sus eventos.", quote: "A consultar", cta: "Contáctenos", note: "El uso de la IA se factura por minutos emitidos y número de idiomas. Los idiomas con intérpretes humanos no consumen minutos.", popular: "El más elegido", plans: [
+    plan("event", PRICES.event, "Evento", "Para un evento puntual.", ["1 evento", "Hasta 5 idiomas", "Traducción de voz y subtítulos", "Pantalla de sala", "Transcripciones"]),
+    plan("pro", PRICES.pro, "Pro", "Para equipos que organizan a menudo.", ["Eventos ilimitados", "Cuentas de presentador", "Zoom, Teams, RTMP y SRT", "Resúmenes con IA y doblaje", "Informes de actividad"]),
+    plan("enterprise", PRICES.enterprise, "Empresa", "Para grandes organizaciones.", ["Todo lo de Pro", "Inicio de sesión único", "Intérpretes humanos", "API e inserción web", "Acompañamiento dedicado"]),
+  ] },
+  pt: { title: "Preços", lead: "Planos simples, conforme o tamanho dos seus eventos.", quote: "Sob consulta", cta: "Fale conosco", note: "O uso da IA é cobrado por minutos transmitidos e número de idiomas. Idiomas com intérpretes humanos não consomem minutos.", popular: "O mais escolhido", plans: [
+    plan("event", PRICES.event, "Evento", "Para um evento pontual.", ["1 evento", "Até 5 idiomas", "Tradução de voz e legendas", "Tela da sala", "Transcrições"]),
+    plan("pro", PRICES.pro, "Pro", "Para equipes que organizam com frequência.", ["Eventos ilimitados", "Contas de apresentador", "Zoom, Teams, RTMP e SRT", "Resumos com IA e dublagem", "Relatórios de atividade"]),
+    plan("enterprise", PRICES.enterprise, "Empresa", "Para grandes organizações.", ["Tudo do Pro", "Login único", "Intérpretes humanos", "API e incorporação web", "Acompanhamento dedicado"]),
+  ] },
+  de: { title: "Preise", lead: "Einfache Pakete, passend zur Größe Ihrer Events.", quote: "Auf Anfrage", cta: "Kontakt aufnehmen", note: "Die KI-Nutzung wird nach gesendeten Minuten und Zahl der Sprachen abgerechnet. Von Dolmetschern betreute Sprachen verbrauchen keine Minuten.", popular: "Am beliebtesten", plans: [
+    plan("event", PRICES.event, "Event", "Für ein einzelnes Event.", ["1 Event", "Bis zu 5 Sprachen", "Sprachübersetzung und Untertitel", "Saalanzeige", "Transkripte"]),
+    plan("pro", PRICES.pro, "Pro", "Für Teams mit regelmäßigen Events.", ["Unbegrenzte Events", "Konten für Vortragende", "Zoom, Teams, RTMP und SRT", "KI-Zusammenfassungen und Synchronisation", "Aktivitätsberichte"]),
+    plan("enterprise", PRICES.enterprise, "Enterprise", "Für große Organisationen.", ["Alles aus Pro", "Single Sign-on", "Menschliche Dolmetscher", "API und Web-Einbettung", "Persönliche Betreuung"]),
+  ] },
+};
+
+// Legal pages. French and English are authoritative; other languages show English.
+const UPDATED = "2026-10-16";
+export const LEGAL = {
+  fr: {
+    updated: "Dernière mise à jour :", privacy: "Confidentialité", terms: "Conditions d'utilisation",
+    privacyPage: { title: "Politique de confidentialité", lead: "Ce que Syntova collecte, pourquoi, et ce que vous pouvez demander.", sections: [
+      ["Qui sommes-nous", "Syntova est un service de traduction, de sous-titres et de transcriptions en direct. Pour toute question sur vos renseignements personnels, écrivez-nous au moyen du formulaire de contact du site."],
+      ["Ce que nous collectons", "Comptes : nom, adresse courriel, mot de passe chiffré (haché) et, si vous l'activez, la clé de double authentification. Sessions : nom, langues, horaires et statistiques d'usage. Demandes de démo : les champs que vous remplissez. Transcriptions : seulement si l'organisateur active l'archivage. Les participants qui écoutent une session n'ont pas de compte et ne donnent aucun renseignement."],
+      ["Le son", "Pendant une session, le son de l'intervenant est envoyé à notre fournisseur d'IA (OpenAI) pour être traduit en direct. Syntova n'enregistre jamais le son. Le traitement par le fournisseur est régi par ses propres conditions pour les services d'API."],
+      ["Pourquoi", "Pour fournir le service, gérer les comptes et les minutes, répondre aux demandes de démo et assurer la sécurité. Nous ne vendons pas vos renseignements et n'utilisons aucune publicité ni aucun outil de suivi publicitaire."],
+      ["Stockage local", "Le navigateur garde votre langue d'affichage et, pour les comptes, votre session de connexion. Aucun témoin (cookie) publicitaire n'est utilisé."],
+      ["Où et combien de temps", "Les données sont stockées sur notre serveur. Les transcriptions archivées sont supprimées avec l'événement. Les événements non épinglés expirent 24 heures après leur fin. Les comptes sont conservés jusqu'à leur suppression."],
+      ["Vos droits", "Vous pouvez demander l'accès à vos renseignements, leur correction ou leur suppression, et retirer votre consentement. Nous répondons dans un délai de 30 jours. Vous pouvez aussi porter plainte auprès du Commissariat à la protection de la vie privée du Canada."],
+    ] },
+    termsPage: { title: "Conditions d'utilisation", lead: "Les règles d'utilisation de Syntova.", sections: [
+      ["Le service", "Syntova fournit une traduction, des sous-titres, des transcriptions et des résumés générés par intelligence artificielle, pendant et après vos événements."],
+      ["Traduction automatique", "La traduction est produite automatiquement et peut contenir des erreurs. Pour un contenu juridique, médical ou à fort enjeu, faites appel à un interprète professionnel ou relisez le texte avant de vous y fier."],
+      ["Comptes", "Vous êtes responsable de vos identifiants et des personnes à qui vous donnez accès. Signalez-nous sans délai tout accès non autorisé."],
+      ["Usage acceptable", "N'utilisez pas Syntova pour un contenu illégal, haineux ou trompeur, ni pour enregistrer des personnes sans leur consentement lorsque la loi l'exige. Informez vos participants que la session est traduite par IA."],
+      ["Votre contenu", "Vous restez propriétaire de vos contenus et de vos transcriptions. Vous nous autorisez à les traiter uniquement pour fournir le service."],
+      ["Disponibilité", "Nous faisons de notre mieux pour que le service soit disponible, sans garantie de fonctionnement ininterrompu. Dans la mesure permise par la loi, notre responsabilité est limitée aux sommes payées pour la période concernée."],
+      ["Modifications", "Nous pouvons modifier ces conditions. La date de mise à jour figure en haut de la page. Ces conditions sont régies par les lois du Nouveau-Brunswick et du Canada."],
+    ] },
+  },
+  en: {
+    updated: "Last updated:", privacy: "Privacy", terms: "Terms of use",
+    privacyPage: { title: "Privacy policy", lead: "What Syntova collects, why, and what you can ask for.", sections: [
+      ["Who we are", "Syntova is a live translation, captioning and transcription service. For any question about your personal information, write to us through the website's contact form."],
+      ["What we collect", "Accounts: name, email address, hashed password and, if you turn it on, the two-factor key. Sessions: name, languages, times and usage statistics. Demo requests: the fields you fill in. Transcripts: only if the organizer turns archiving on. Attendees who listen to a session have no account and give no information."],
+      ["Audio", "During a session, the speaker's audio is sent to our AI provider (OpenAI) to be translated live. Syntova never records audio. The provider's processing is governed by its own terms for API services."],
+      ["Why", "To provide the service, manage accounts and minutes, answer demo requests and keep things secure. We do not sell your information and use no advertising or ad-tracking tools."],
+      ["Local storage", "Your browser keeps your display language and, for accounts, your sign-in session. No advertising cookies are used."],
+      ["Where and how long", "Data is stored on our server. Archived transcripts are deleted with the event. Events that are not pinned expire 24 hours after they end. Accounts are kept until they are deleted."],
+      ["Your rights", "You can ask to access, correct or delete your information, and withdraw your consent. We answer within 30 days. You can also complain to the Office of the Privacy Commissioner of Canada."],
+    ] },
+    termsPage: { title: "Terms of use", lead: "The rules for using Syntova.", sections: [
+      ["The service", "Syntova provides AI-generated translation, captions, transcripts and summaries, during and after your events."],
+      ["Machine translation", "Translation is produced automatically and may contain errors. For legal, medical or high-stakes content, use a professional interpreter or review the text before relying on it."],
+      ["Accounts", "You are responsible for your credentials and for the people you give access to. Tell us promptly about any unauthorized access."],
+      ["Acceptable use", "Do not use Syntova for illegal, hateful or misleading content, or to record people without consent where the law requires it. Tell your attendees that the session is translated by AI."],
+      ["Your content", "You keep ownership of your content and transcripts. You allow us to process them only to provide the service."],
+      ["Availability", "We do our best to keep the service available, without a guarantee of uninterrupted operation. To the extent the law allows, our liability is limited to the amounts paid for the period concerned."],
+      ["Changes", "We may change these terms. The update date is shown at the top of the page. These terms are governed by the laws of New Brunswick and Canada."],
+    ] },
+  },
+};
+LEGAL.es = { ...LEGAL.en, updated: "Última actualización:", privacy: "Privacidad", terms: "Condiciones de uso", note: "Esta página está disponible en inglés y en francés." };
+LEGAL.pt = { ...LEGAL.en, updated: "Última atualização:", privacy: "Privacidade", terms: "Termos de uso", note: "Esta página está disponível em inglês e francês." };
+LEGAL.de = { ...LEGAL.en, updated: "Zuletzt aktualisiert:", privacy: "Datenschutz", terms: "Nutzungsbedingungen", note: "Diese Seite ist auf Englisch und Französisch verfügbar." };
+export const LEGAL_UPDATED = UPDATED;

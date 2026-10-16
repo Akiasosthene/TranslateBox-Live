@@ -15,6 +15,9 @@ import socket
 import ipaddress
 import string
 import re
+import smtplib
+import ssl
+from email.message import EmailMessage
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from collections import defaultdict, deque
@@ -1582,7 +1585,58 @@ async def contact(body: ContactRequest, request: Request):
                   **{k: v.strip() for k, v in body.model_dump().items() if k != "website"}})
     STORE.set("leads", leads[-2000:])
     logger.info("New demo request")
+    if _smtp_configured():
+        asyncio.get_running_loop().run_in_executor(None, _send_lead_email, leads[-1])
     return {"ok": True}
+
+
+def _smtp_configured() -> bool:
+    return bool(os.environ.get("SMTP_HOST") and os.environ.get("LEADS_NOTIFY_TO"))
+
+
+def _lead_email(lead: dict) -> EmailMessage:
+    """Plain-text notification for one demo request (no HTML, no links built from user input)."""
+    msg = EmailMessage()
+    sender = os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER") or "no-reply@localhost"
+    msg["From"] = sender
+    msg["To"] = os.environ["LEADS_NOTIFY_TO"]
+    name = re.sub(r"[\r\n]+", " ", lead.get("name", ""))[:120]
+    org = re.sub(r"[\r\n]+", " ", lead.get("organization", ""))[:160]
+    msg["Subject"] = f"Syntova demo request: {name}" + (f" ({org})" if org else "")
+    reply = lead.get("email", "")
+    if EMAIL_RE.match(reply.lower()):
+        msg["Reply-To"] = reply
+    rows = [("Name", "name"), ("Email", "email"), ("Organization", "organization"), ("Event type", "kind"),
+            ("Attendees", "size"), ("Languages", "languages"), ("Site language", "lang")]
+    body = "\n".join(f"{label}: {lead.get(key, '')}" for label, key in rows)
+    body += "\n\nMessage:\n" + (lead.get("message") or "(none)")
+    portal = (os.environ.get("PUBLIC_ORIGIN") or "").rstrip("/")
+    if portal:
+        body += f"\n\nAll requests: {portal}/portal/requests"
+    msg.set_content(body)
+    return msg
+
+
+def _send_lead_email(lead: dict) -> None:
+    host = os.environ.get("SMTP_HOST", "")
+    port = int(os.environ.get("SMTP_PORT") or 587)
+    user = os.environ.get("SMTP_USER", "")
+    password = os.environ.get("SMTP_PASSWORD", "")
+    try:
+        msg = _lead_email(lead)
+        ctx = ssl.create_default_context()
+        if port == 465:
+            server = smtplib.SMTP_SSL(host, port, timeout=20, context=ctx)
+        else:
+            server = smtplib.SMTP(host, port, timeout=20)
+            server.starttls(context=ctx)
+        with server:
+            if user:
+                server.login(user, password)
+            server.send_message(msg)
+        logger.info("Demo request emailed")
+    except Exception as exc:  # never break the website form because of mail
+        logger.warning("Demo request email failed: %s", type(exc).__name__)
 
 
 @api_router.get("/leads")

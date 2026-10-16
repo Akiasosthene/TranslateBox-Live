@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { ArrowRight, CircleCheck, Plus, Check } from "lucide-react";
 import { SiteLayout, useCopy, Icon, img } from "../site/SiteLayout";
-import { PRODUCTS, PRODUCT_ALIASES, USECASES, UC_PRODUCTS, FEATURES, COMMON, HOME, HOW, SECURITY_PAGE, DEMO, NAV } from "../site/content";
+import { PRODUCTS, PRODUCT_ALIASES, USECASES, UC_PRODUCTS, FEATURES, COMMON, HOME, HOW, SECURITY_PAGE, DEMO, NAV, PRICING, LEGAL, LEGAL_UPDATED } from "../site/content";
 import { API } from "../lib/api";
 import { useLocale } from "../context/LocaleContext";
 
@@ -43,7 +43,7 @@ export function ProductPage() {
   const p = products.find((x) => x.slug === slug);
   if (!p) return <Navigate to="/produits" replace />;
   return (
-    <SiteLayout>
+    <SiteLayout title={p.title} description={p.lead}>
       <PageHero crumbs={[["/", "Syntova"], ["/produits", nav.products], [null, p.name]]} title={p.title} lead={p.lead} image={p.image} />
       <section className="ts-section soft"><div className="ts-wrap"><h2 className="ts-h2">{c.features}</h2><div className="ts-feats">{p.features.map(([t, d]) => <div key={t}><CircleCheck size={20} /><span><b>{t}</b><p>{d}</p></span></div>)}</div></div></section>
       <section className="ts-section"><div className="ts-wrap"><h2 className="ts-h2 ts-center">{c.faq}</h2><Faq items={p.faq} /></div></section>
@@ -58,7 +58,7 @@ export function ProductsIndex() {
   const h = useCopy(HOME);
   const nav = useCopy(NAV);
   return (
-    <SiteLayout>
+    <SiteLayout title={nav.products} description={h.bundle.lead}>
       <PageHero eyebrow={nav.products} title={h.bundle.title} lead={h.bundle.lead} image="screen" />
       <section className="ts-section soft"><div className="ts-wrap"><div className="ts-tiles">{products.map((p) => <Tile key={p.slug} p={p} />)}</div></div></section>
       <CtaBand />
@@ -76,7 +76,7 @@ export function UseCasePage() {
   if (!u) return <Navigate to="/cas-usage" replace />;
   const picks = (UC_PRODUCTS[slug] || []).map((s) => products.find((p) => p.slug === s)).filter(Boolean);
   return (
-    <SiteLayout>
+    <SiteLayout title={u.title} description={u.lead}>
       <PageHero crumbs={[["/", "Syntova"], ["/cas-usage", nav.usecases], [null, u.name]]} eyebrow={u.name} title={u.title} lead={u.lead} image={slug === "formations" || slug === "accueil-du-public" ? "captions" : "screen"} />
       <section className="ts-section soft"><div className="ts-wrap"><h2 className="ts-h2">{c.needs}</h2><div className="ts-needs">{u.needs.map(([t, d]) => <article key={t}><h3>{t}</h3><p>{d}</p></article>)}</div></div></section>
       <section className="ts-section"><div className="ts-wrap"><h2 className="ts-h2">{c.included}</h2><div className="ts-tiles">{picks.map((p) => <Tile key={p.slug} p={p} />)}</div></div></section>
@@ -90,7 +90,7 @@ export function UseCasesIndex() {
   const h = useCopy(HOME);
   const nav = useCopy(NAV);
   return (
-    <SiteLayout>
+    <SiteLayout title={nav.usecases} description={h.usecases.lead}>
       <PageHero eyebrow={nav.usecases} title={h.usecases.title} lead={h.usecases.lead} image="screen" />
       <section className="ts-section soft"><div className="ts-wrap"><div className="ts-segments">{usecases.map((u) => <Link key={u.slug} to={`/cas-usage/${u.slug}`} className="ts-seg"><span><Icon name={u.icon} /></span><div><h3>{u.name}</h3><p>{u.lead}</p></div></Link>)}</div></div></section>
       <CtaBand />
@@ -101,7 +101,7 @@ export function UseCasesIndex() {
 export function FeaturesPage() {
   const f = useCopy(FEATURES);
   return (
-    <SiteLayout>
+    <SiteLayout title={f.title} description={f.lead}>
       <PageHero title={f.title} lead={f.lead} image="sessions" />
       <section className="ts-section soft"><div className="ts-wrap ts-fgroups">{f.groups.map(([icon, title, items]) => (
         <article className="ts-fgroup" key={title}><span><Icon name={icon} size={22} /></span><h2>{title}</h2><ul>{items.map((i) => <li key={i}><Check size={16} />{i}</li>)}</ul></article>
@@ -114,7 +114,7 @@ export function FeaturesPage() {
 export function HowItWorks() {
   const w = useCopy(HOW);
   return (
-    <SiteLayout>
+    <SiteLayout title={w.title} description={w.lead}>
       <PageHero title={w.title} lead={w.lead} image="screen" />
       <section className="ts-section soft"><div className="ts-wrap"><div className="ts-how">{w.steps.map(([icon, t, d]) => <article key={t}><span><Icon name={icon} size={24} /></span><h3>{t}</h3><p>{d}</p></article>)}</div></div></section>
       <section className="ts-section"><div className="ts-wrap ts-demo"><div><h2 className="ts-h2">{w.cost.title}</h2><p className="ts-lead">{w.cost.text}</p></div><div className="ts-demo-card"><div className="ts-monitor"><img src={img("sessions")} alt="" loading="lazy" /></div></div></div></section>
@@ -128,7 +128,7 @@ export function FaqPage() {
   const products = useCopy(PRODUCTS);
   const c = useCopy(COMMON);
   return (
-    <SiteLayout>
+    <SiteLayout title={c.faq}>
       <PageHero title={c.faq} lead={h.hero.lead} ctas={false} />
       <section className="ts-section"><div className="ts-wrap"><Faq items={[...h.features.items.map(([q, a]) => [q, a]), ...products.flatMap((p) => p.faq)]} /></div></section>
       <CtaBand />
@@ -139,7 +139,7 @@ export function FaqPage() {
 export function SecurityPage() {
   const s = useCopy(SECURITY_PAGE);
   return (
-    <SiteLayout>
+    <SiteLayout title={s.title} description={s.lead}>
       <PageHero title={s.title} lead={s.lead} ctas={false} />
       <section className="ts-section soft"><div className="ts-wrap ts-sec-grid">{s.blocks.map(([t, p]) => <article key={t}><h2>{t}</h2><p>{p}</p></article>)}</div></section>
       <CtaBand />
@@ -163,7 +163,7 @@ export function DemoPage() {
     } catch (err) { setState({ busy: false, done: false, error: err.message || c.failed }); }
   };
   return (
-    <SiteLayout>
+    <SiteLayout title={c.title} description={c.lead}>
       <section className="ts-page-hero">
         <div className="ts-wrap ts-page-grid" style={{ alignItems: "start" }}>
           <div>
@@ -191,3 +191,38 @@ export function DemoPage() {
     </SiteLayout>
   );
 }
+
+export function PricingPage() {
+  const p = useCopy(PRICING);
+  return (
+    <SiteLayout title={p.title} description={p.lead}>
+      <section className="ts-page-hero"><div className="ts-wrap ts-center"><h1 className="ts-h1">{p.title}</h1><p className="ts-lead" style={{ margin: "16px auto 0" }}>{p.lead}</p></div></section>
+      <section className="ts-section soft" style={{ paddingTop: 50 }}><div className="ts-wrap">
+        <div className="ts-plans">{p.plans.map((x) => (
+          <article key={x.id} className={`ts-plan ${x.id === "pro" ? "featured" : ""}`}>
+            {x.id === "pro" && <span className="ts-plan-badge">{p.popular}</span>}
+            <h2>{x.name}</h2><p>{x.tag}</p>
+            <b className="ts-plan-price">{x.price || p.quote}</b>
+            <ul>{x.items.map((i) => <li key={i}><Check size={16} />{i}</li>)}</ul>
+            <Link to="/demo" className={`ts-btn ${x.id === "pro" ? "ts-btn-primary" : "ts-btn-outline"}`}>{p.cta}</Link>
+          </article>
+        ))}</div>
+        <p className="ts-plan-note">{p.note}</p>
+      </div></section>
+      <CtaBand />
+    </SiteLayout>
+  );
+}
+
+function LegalPage({ which }) {
+  const l = useCopy(LEGAL);
+  const page = l[which];
+  return (
+    <SiteLayout title={page.title} description={page.lead}>
+      <section className="ts-page-hero"><div className="ts-wrap" style={{ maxWidth: 860 }}><h1 className="ts-h1">{page.title}</h1><p className="ts-lead">{page.lead}</p><p className="ts-legal-date">{l.updated} {LEGAL_UPDATED}{l.note ? ` · ${l.note}` : ""}</p></div></section>
+      <section className="ts-section" style={{ paddingTop: 30 }}><div className="ts-wrap ts-legal">{page.sections.map(([t, d]) => <article key={t}><h2>{t}</h2><p>{d}</p></article>)}</div></section>
+    </SiteLayout>
+  );
+}
+export const PrivacyPage = () => <LegalPage which="privacyPage" />;
+export const TermsPage = () => <LegalPage which="termsPage" />;

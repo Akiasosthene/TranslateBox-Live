@@ -300,3 +300,26 @@
 .ts-lang select:focus { outline: none; }
 .ts-lang:focus-within { box-shadow: 0 0 0 3px rgba(26, 115, 232, .25); }
 .ts-hero .ts-h1 { margin-top: 0; }
+
+/* Pricing */
+.ts-plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: stretch; }
+.ts-plan { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 30px; display: flex; flex-direction: column; }
+.ts-plan.featured { border-color: var(--blue); box-shadow: 0 20px 45px -25px rgba(26, 115, 232, .55); }
+.ts-plan h2 { margin: 0; font-size: 22px; color: var(--navy); }
+.ts-plan > p { margin: 6px 0 18px; color: var(--muted); font-size: 15px; }
+.ts-plan-price { font-size: 28px; color: var(--navy); margin-bottom: 18px; }
+.ts-plan ul { list-style: none; padding: 0; margin: 0 0 26px; display: grid; gap: 10px; flex: 1; }
+.ts-plan li { display: grid; grid-template-columns: 18px 1fr; gap: 9px; font-size: 15px; }
+.ts-plan li svg { color: var(--blue); margin-top: 3px; }
+.ts-plan .ts-btn { justify-content: center; }
+.ts-plan-badge { position: absolute; top: -12px; left: 30px; background: var(--blue); color: #fff; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 99px; }
+.ts-plan-note { text-align: center; color: var(--muted); font-size: 14px; max-width: 720px; margin: 28px auto 0; }
+/* Legal */
+.ts-legal { max-width: 860px; display: grid; gap: 26px; }
+.ts-legal h2 { font-size: 20px; color: var(--navy); margin: 0 0 6px; }
+.ts-legal p { margin: 0; line-height: 1.7; color: var(--ink, #334155); }
+.ts-legal-date { color: var(--muted); font-size: 14px; margin-top: 14px; }
+.ts-footer-legal { display: inline-flex; gap: 18px; flex-wrap: wrap; }
+.ts-footer-legal a { color: inherit; }
+a.ts-menu-trigger { text-decoration: none; }
+@media (max-width: 980px) { .ts-plans { grid-template-columns: 1fr; max-width: 480px; margin: 0 auto; } }

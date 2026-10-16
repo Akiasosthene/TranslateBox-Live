@@ -1,0 +1,11 @@
+User-agent: *
+Disallow: /api/
+Disallow: /portal
+Disallow: /present
+Disallow: /debug
+Disallow: /loadtest
+Disallow: /e/
+Disallow: /login
+Allow: /
+
+Sitemap: https://syntova.cloud/sitemap.xml

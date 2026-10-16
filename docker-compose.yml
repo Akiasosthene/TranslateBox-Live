@@ -32,6 +32,12 @@ services:
       INGEST_RTMPS_PORT: ${INGEST_RTMPS_PORT:-}
       OPENAI_CASCADE_MODEL: ${OPENAI_CASCADE_MODEL:-}
       SERVER_IDLE_MINUTES: ${SERVER_IDLE_MINUTES:-30}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      LEADS_NOTIFY_TO: ${LEADS_NOTIFY_TO:-}
     volumes:
       - event_data:/data
     expose:

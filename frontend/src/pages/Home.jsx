@@ -9,7 +9,7 @@ export default function Home() {
   const products = useCopy(PRODUCTS);
   const usecases = useCopy(USECASES);
   return (
-    <SiteLayout>
+    <SiteLayout title={h.hero.title} description={h.hero.lead}>
       <section className="ts-hero">
         <div className="ts-wrap ts-hero-grid">
           <div>

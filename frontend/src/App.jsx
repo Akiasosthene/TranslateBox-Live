@@ -23,6 +23,9 @@ const ProductsIndex = lazy(() => site().then((m) => ({ default: m.ProductsIndex 
 const UseCasePage = lazy(() => site().then((m) => ({ default: m.UseCasePage })));
 const UseCasesIndex = lazy(() => site().then((m) => ({ default: m.UseCasesIndex })));
 const FeaturesPage = lazy(() => site().then((m) => ({ default: m.FeaturesPage })));
+const PricingPage = lazy(() => site().then((m) => ({ default: m.PricingPage })));
+const PrivacyPage = lazy(() => site().then((m) => ({ default: m.PrivacyPage })));
+const TermsPage = lazy(() => site().then((m) => ({ default: m.TermsPage })));
 const HowItWorks = lazy(() => site().then((m) => ({ default: m.HowItWorks })));
 const FaqPage = lazy(() => site().then((m) => ({ default: m.FaqPage })));
 const SecurityPage = lazy(() => site().then((m) => ({ default: m.SecurityPage })));
@@ -49,6 +52,12 @@ function App() {
             <Route path="/solutions/*" element={<Navigate to="/cas-usage" replace />} />
             <Route path="/fonctionnalites" element={<FeaturesPage />} />
             <Route path="/features" element={<FeaturesPage />} />
+            <Route path="/tarifs" element={<PricingPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/confidentialite" element={<PrivacyPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/conditions" element={<TermsPage />} />
+            <Route path="/terms" element={<TermsPage />} />
             <Route path="/comment-ca-marche" element={<HowItWorks />} />
             <Route path="/faq" element={<FaqPage />} />
             <Route path="/securite" element={<SecurityPage />} />

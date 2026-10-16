@@ -179,3 +179,36 @@ def test_demo_requests_public_submit_admin_read(client):
     assert [l['name'] for l in leads] == ['Ana'] and 'website' not in leads[0]
     assert client.patch(f"/api/leads/{leads[0]['id']}", headers=AUTH, json={'status': 'contacted'}).json()['leads'][0]['status'] == 'contacted'
     assert client.delete(f"/api/leads/{leads[0]['id']}", headers=AUTH).json()['leads'] == []
+
+
+def test_demo_request_email(monkeypatch):
+    import server
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            sent.append(("connect", host, port))
+        def starttls(self, context=None):
+            sent.append(("tls",))
+        def login(self, user, password):
+            sent.append(("login", user))
+        def send_message(self, msg):
+            sent.append(("msg", msg))
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(server.smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.org")
+    monkeypatch.setenv("SMTP_USER", "bot@example.org")
+    monkeypatch.setenv("SMTP_PASSWORD", "x")
+    monkeypatch.setenv("LEADS_NOTIFY_TO", "owner@example.org")
+    lead = {"name": "Ana\r\nBcc: evil@example.org", "email": "ana@example.org", "organization": "Acme", "message": "Hi"}
+    server._send_lead_email(lead)
+    msg = [x for x in sent if x[0] == "msg"][0][1]
+    assert msg["To"] == "owner@example.org"
+    assert msg["Reply-To"] == "ana@example.org"
+    assert "\n" not in msg["Subject"] and "Bcc" not in msg.keys()
+    assert "Acme" in msg.get_content()
+    assert ("tls",) in sent and ("login", "bot@example.org") in sent
