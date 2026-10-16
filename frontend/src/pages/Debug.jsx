@@ -56,7 +56,7 @@ export default function Debug() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl md:text-2xl font-extrabold tracking-wider uppercase">{t("Debug Console")}</h1>
-            <p className="text-xs text-slate-500 mt-1">{t("Syntonia Live — realtime diagnostics")}</p>
+            <p className="text-xs text-slate-500 mt-1">{t("Syntova — realtime diagnostics")}</p>
           </div>
           <HomeLink />
           <InterfaceLanguage />

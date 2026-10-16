@@ -61,7 +61,7 @@ function App() {
               <Route path="/debug" element={<Debug />} />
               <Route path="/loadtest" element={<LoadTest />} />
             </Route>
-            <Route path="*" element={<p className="p-8">Page not found. <Link to="/">Open Syntonia Live</Link></p>} />
+            <Route path="*" element={<p className="p-8">Page not found. <Link to="/">Open Syntova</Link></p>} />
           </Routes>
           </Suspense>
       </BrowserRouter>

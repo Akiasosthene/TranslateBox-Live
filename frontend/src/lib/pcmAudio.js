@@ -1,4 +1,4 @@
-// Universal low-latency audio transport for Syntonia Live.
+// Universal low-latency audio transport for Syntova.
 //
 // The operator taps its program bus with an AudioWorklet, resamples to 16 kHz
 // mono and sends 40 ms Int16 frames over the broadcast WebSocket. Listeners

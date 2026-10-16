@@ -1,4 +1,4 @@
-# TranslateBox Live
+# Syntova (formerly TranslateBox)
 
 Console d’interprétation vocale en temps réel et diffusion aux auditeurs par lien/QR code.
 React + Vite, FastAPI, WebRTC vers OpenAI, WebSocket pour la diffusion.

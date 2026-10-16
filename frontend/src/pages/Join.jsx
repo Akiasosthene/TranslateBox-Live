@@ -35,7 +35,7 @@ export default function Join() {
     <div className="min-h-screen bg-[#0B0F17] text-slate-100 flex justify-center px-5 py-12">
       <div className="w-full max-w-md space-y-8">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-mono uppercase tracking-[0.3em] text-emerald-400 flex items-center gap-2"><Headphones className="h-4 w-4" />Syntonia Live</p>
+          <p className="text-xs font-mono uppercase tracking-[0.3em] text-emerald-400 flex items-center gap-2"><Headphones className="h-4 w-4" />Syntova</p>
           <InterfaceLanguage />
         </div>
         <h1 className="text-3xl font-extrabold">{t("Join a session")}</h1>

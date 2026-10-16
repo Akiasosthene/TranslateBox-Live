@@ -92,7 +92,6 @@
 .tb-feature-grid article > div svg:last-child { color:#c4d3f1; }
 .tb-footer a { color:#c5d3ec; }
 .tb-brand-compact small { display:none; }
-/* Syntonia wordmark */
+/* Syntova wordmark */
 .tb-brand { letter-spacing:-.6px; }
 .tb-brand > svg { color:inherit; }
-.tb-live { font-size:.52em; font-weight:800; letter-spacing:2px; text-transform:uppercase; margin-left:6px; vertical-align:.5em; }
