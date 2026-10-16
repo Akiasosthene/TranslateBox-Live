@@ -61,7 +61,7 @@ export const EventProfileDialog = () => {
           <Field label="Names / Proper Nouns" hint="One per line" textarea value={profile.vocabNames} onChange={set("vocabNames")} disabled={active} testId="profile-vocab-names" />
           <Field label="Acronyms" hint="One per line" textarea value={profile.vocabAcronyms} onChange={set("vocabAcronyms")} disabled={active} testId="profile-vocab-acronyms" />
           <Field label="Technical Terms" hint="One per line" textarea value={profile.vocabTechnical} onChange={set("vocabTechnical")} disabled={active} testId="profile-vocab-technical" />
-          <Field label="Biblical Terms" hint="One per line" textarea value={profile.vocabBiblical} onChange={set("vocabBiblical")} disabled={active} testId="profile-vocab-biblical" />
+          <Field label="Product and Brand Terms" hint="One per line" textarea value={profile.vocabBiblical} onChange={set("vocabBiblical")} disabled={active} testId="profile-vocab-biblical" />
         </div>
         <Field label="Places" hint="One per line" textarea value={profile.vocabPlaces} onChange={set("vocabPlaces")} disabled={active} testId="profile-vocab-places" />
         <Field label="Additional Translation Instructions" textarea value={profile.additional} onChange={set("additional")} disabled={active} testId="profile-additional" />

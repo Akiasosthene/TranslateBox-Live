@@ -1,7 +1,7 @@
 import { LocaleProvider } from '@/context/LocaleContext';
 import "@/App.css";
 import React, { Suspense, lazy } from "react";
-import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Link, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/context/ThemeContext";
 import Listener from "@/pages/Listener";
 
@@ -20,8 +20,9 @@ const Login = lazy(() => import("@/pages/Login"));
 const site = () => import("@/pages/SitePages");
 const ProductPage = lazy(() => site().then((m) => ({ default: m.ProductPage })));
 const ProductsIndex = lazy(() => site().then((m) => ({ default: m.ProductsIndex })));
-const SolutionPage = lazy(() => site().then((m) => ({ default: m.SolutionPage })));
-const SolutionsIndex = lazy(() => site().then((m) => ({ default: m.SolutionsIndex })));
+const UseCasePage = lazy(() => site().then((m) => ({ default: m.UseCasePage })));
+const UseCasesIndex = lazy(() => site().then((m) => ({ default: m.UseCasesIndex })));
+const FeaturesPage = lazy(() => site().then((m) => ({ default: m.FeaturesPage })));
 const HowItWorks = lazy(() => site().then((m) => ({ default: m.HowItWorks })));
 const FaqPage = lazy(() => site().then((m) => ({ default: m.FaqPage })));
 const SecurityPage = lazy(() => site().then((m) => ({ default: m.SecurityPage })));
@@ -43,8 +44,11 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/produits" element={<ProductsIndex />} />
             <Route path="/produits/:slug" element={<ProductPage />} />
-            <Route path="/solutions" element={<SolutionsIndex />} />
-            <Route path="/solutions/:slug" element={<SolutionPage />} />
+            <Route path="/cas-usage" element={<UseCasesIndex />} />
+            <Route path="/cas-usage/:slug" element={<UseCasePage />} />
+            <Route path="/solutions/*" element={<Navigate to="/cas-usage" replace />} />
+            <Route path="/fonctionnalites" element={<FeaturesPage />} />
+            <Route path="/features" element={<FeaturesPage />} />
             <Route path="/comment-ca-marche" element={<HowItWorks />} />
             <Route path="/faq" element={<FaqPage />} />
             <Route path="/securite" element={<SecurityPage />} />

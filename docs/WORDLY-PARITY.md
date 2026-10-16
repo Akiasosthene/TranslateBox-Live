@@ -28,7 +28,7 @@ Legend: ✅ equal or better · 🟡 partial · ❌ missing · ➕ TranslateBox o
 | Speaker names | Speaker bar, names in captions, room screen and transcripts | ✅ |
 | Pause / mute / push-to-talk | Mute, push-to-talk with configurable key, cough button for booths | ✅ |
 | Glossary (terms, sounds-like, per language) | ~3000 terms, `[fr]` sections, `<sounds, like>`, `!!` preferred terms, hide words | ✅ |
-| Choice of voice | 13 studio voices + style (sermon, interpreter…), original realtime voice | ✅ |
+| Choice of voice | 13 studio voices + style (keynote, interpreter…), original realtime voice | ✅ |
 | Room display of captions | Room screen, multilingual screen (up to 4), OBS/vMix overlay | ✅ |
 | Auto-stop | After N minutes and on silence | ✅ |
 | — | Human interpreter booths mixed with AI languages | ➕ |

@@ -113,7 +113,7 @@ export const SettingsDialog = () => {
           <Field label={t("Speakers")} textarea value={profile.speakers} onChange={set("speakers")} disabled={active} testId="profile-speakers" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label={t("Names / Proper Nouns")} textarea value={profile.vocabNames} onChange={set("vocabNames")} disabled={active} testId="profile-vocab-names" />
-            <Field label={t("Biblical Terms")} textarea value={profile.vocabBiblical} onChange={set("vocabBiblical")} disabled={active} testId="profile-vocab-biblical" />
+            <Field label={t("Product and Brand Terms")} textarea value={profile.vocabBiblical} onChange={set("vocabBiblical")} disabled={active} testId="profile-vocab-biblical" />
             <Field label={t("Technical Terms")} textarea value={profile.vocabTechnical} onChange={set("vocabTechnical")} disabled={active} testId="profile-vocab-technical" />
             <Field label={t("Acronyms")} textarea value={profile.vocabAcronyms} onChange={set("vocabAcronyms")} disabled={active} testId="profile-vocab-acronyms" />
           </div>

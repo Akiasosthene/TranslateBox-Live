@@ -100,7 +100,7 @@ function SessionForm({ initial, onSave, onCancel, busy }) {
       <input className={input} value={f.organization} onChange={set("organization")} maxLength={200} placeholder={t("Organization")} aria-label={t("Organization")} />
       <label className="text-xs text-slate-500">{t("Start")}<input type="datetime-local" className={`${input} w-full mt-1`} value={f.start} onChange={set("start")} data-testid="session-start" /></label>
       <label className="text-xs text-slate-500">{t("Duration (minutes)")}<input type="number" min="0" max="1440" className={`${input} w-full mt-1`} value={f.duration} onChange={set("duration")} /></label>
-      <input className={`${input} sm:col-span-2`} value={f.labels} onChange={set("labels")} placeholder={t("Labels, separated by commas (e.g. Sunday, Youth)")} aria-label={t("Labels")} />
+      <input className={`${input} sm:col-span-2`} value={f.labels} onChange={set("labels")} placeholder={t("Labels, separated by commas (e.g. Keynote, Workshop)")} aria-label={t("Labels")} />
       {!editing && (
         <div className="sm:col-span-2 space-y-2">
           <label className="flex items-center gap-2 text-sm"><Languages className="h-4 w-4 text-emerald-500" />{t("Main language")}
@@ -172,7 +172,7 @@ function Sessions({ events, refresh, setError }) {
           <label className={`${btn} h-10 cursor-pointer`}><Upload className="h-3.5 w-3.5" />{t("Import CSV")}
             <input type="file" accept=".csv,text/csv" className="sr-only" data-testid="import-csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) importCsv(f); e.target.value = ""; }} />
           </label>
-          <button className={`${btn} h-10`} onClick={() => downloadText("translatebox-sessions-template.csv", toCSV([["name", "start", "duration", "languages", "labels", "organization", "archive"], ["Sunday service", "2026-11-01 10:00", "90", "en fr es", "Sunday|Church", "My church", "yes"]]), "text/csv")}><Download className="h-3.5 w-3.5" />{t("CSV template")}</button>
+          <button className={`${btn} h-10`} onClick={() => downloadText("translatebox-sessions-template.csv", toCSV([["name", "start", "duration", "languages", "labels", "organization", "archive"], ["Annual conference", "2026-11-01 10:00", "90", "en fr es", "Keynote|Day 1", "My company", "yes"]]), "text/csv")}><Download className="h-3.5 w-3.5" />{t("CSV template")}</button>
           <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("Search name, code or label")} className={`${input} ml-auto w-full sm:w-64`} aria-label={t("Search")} />
         </div>
         {importMsg && <p className="text-sm text-slate-500" role="status">{importMsg}</p>}
@@ -346,7 +346,7 @@ function ApiKeys({ setError }) {
       <section className={`${card} space-y-3`}>
         <p className="text-sm text-slate-500">{t("API keys let your own tools create sessions, read transcripts and activity. Treat them like passwords.")}</p>
         <form onSubmit={create} className="flex flex-wrap gap-2">
-          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder={t("Key name (e.g. Church website)")} className={`${input} flex-1 min-w-[12rem]`} data-testid="key-name" />
+          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder={t("Key name (e.g. Company website)")} className={`${input} flex-1 min-w-[12rem]`} data-testid="key-name" />
           <button className="h-10 px-4 rounded-lg bg-emerald-600 text-white text-sm font-bold inline-flex items-center gap-2" data-testid="create-key"><Plus className="h-4 w-4" />{t("Create a key")}</button>
         </form>
         {fresh && (
@@ -375,7 +375,7 @@ function ApiKeys({ setError }) {
         <pre className="text-xs font-mono whitespace-pre-wrap break-all rounded-lg bg-slate-900 text-slate-100 p-3">{`curl -H "Authorization: Bearer tbk_…" ${origin}/api/events
 
 curl -X POST -H "Authorization: Bearer tbk_…" -H "Content-Type: application/json" \\
-  -d '{"name":"Sunday service","target_language":"en","extra_languages":["fr","es"],"start_at":"2026-11-01T15:00:00Z","archive_transcripts":true}' \\
+  -d '{"name":"Annual conference","target_language":"en","extra_languages":["fr","es"],"start_at":"2026-11-01T15:00:00Z","archive_transcripts":true}' \\
   ${origin}/api/events
 
 curl -H "Authorization: Bearer tbk_…" ${origin}/api/events/<id>/transcripts/fr`}</pre>

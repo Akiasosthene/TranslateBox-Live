@@ -18,9 +18,9 @@ export const MODES = {
   },
   SERMON: {
     key: "SERMON",
-    label: "Sermon / Church",
+    label: "Keynote / Speech",
     instructions:
-      "You are a professional simultaneous interpreter. Translate continuously and faithfully. Preserve biblical references, theological vocabulary, names, rhetorical questions, repetitions, emphasis and emotional meaning. Do not answer the speaker. Do not preach independently. Do not explain. Do not summarize. Use natural target-language phrasing while remaining close behind the speaker. Do not invent words when audio is unclear.",
+      "You are a professional simultaneous interpreter. Translate continuously and faithfully. Preserve quotations, names, rhetorical questions, repetitions, emphasis and emotional meaning. Do not answer the speaker. Do not explain. Do not summarize. Use natural target-language phrasing while remaining close behind the speaker. Do not invent words when audio is unclear.",
   },
   ACADEMIC: {
     key: "ACADEMIC",
@@ -75,7 +75,7 @@ export function compileInstructions({ modeKey, customText, targetName, profile }
     ["Proper nouns / names", p.vocabNames],
     ["Acronyms", p.vocabAcronyms],
     ["Technical terms", p.vocabTechnical],
-    ["Biblical terms", p.vocabBiblical],
+    ["Product and brand terms", p.vocabBiblical],
     ["Places", p.vocabPlaces],
   ];
   const vocabParts = [];

@@ -1097,6 +1097,10 @@ export const messages = {
     "en": "Names / Proper Nouns",
     "fr": "Noms / Noms propres"
   },
+  "Product and Brand Terms": {
+    "en": "Product and Brand Terms",
+    "fr": "Produits et marques"
+  },
   "Biblical Terms": {
     "en": "Biblical Terms",
     "fr": "Termes bibliques"
@@ -1571,6 +1575,8 @@ export const messages = {
 "Delivery style": {"en": "Delivery style", "fr": "Style de diction"},
 "Interpreter": {"en": "Interpreter", "fr": "Interprète"},
 "Sermon": {"en": "Sermon", "fr": "Prédication"},
+"Keynote": {"en": "Keynote", "fr": "Conférence"},
+"Keynote / Speech": {"en": "Keynote / Speech", "fr": "Conférence / Discours"},
 "Lecture": {"en": "Lecture", "fr": "Conférence"},
 "Gentle": {"en": "Gentle", "fr": "Douce"},
 "Custom": {"en": "Custom", "fr": "Personnalisé"},
@@ -1743,7 +1749,7 @@ export const messages = {
 "Portal": {"en": "Portal", "fr": "Portail"},
 "Start": {"en": "Start", "fr": "Début"},
 "Duration (minutes)": {"en": "Duration (minutes)", "fr": "Durée (minutes)"},
-"Labels, separated by commas (e.g. Sunday, Youth)": {"en": "Labels, separated by commas (e.g. Sunday, Youth)", "fr": "Étiquettes, séparées par des virgules (ex. Dimanche, Jeunesse)"},
+"Labels, separated by commas (e.g. Keynote, Workshop)": {"en": "Labels, separated by commas (e.g. Keynote, Workshop)", "fr": "Étiquettes, séparées par des virgules (ex. Plénière, Atelier)"},
 "Labels": {"en": "Labels", "fr": "Étiquettes"},
 "Main language": {"en": "Main language", "fr": "Langue principale"},
 "Pinned (never expires)": {"en": "Pinned (never expires)", "fr": "Épinglée (n’expire jamais)"},
@@ -1783,7 +1789,7 @@ export const messages = {
 "Peak": {"en": "Peak", "fr": "Pic"},
 "Revoke this key? Apps using it stop working.": {"en": "Revoke this key? Apps using it stop working.", "fr": "Révoquer cette clé ? Les applications qui l’utilisent cesseront de fonctionner."},
 "API keys let your own tools create sessions, read transcripts and activity. Treat them like passwords.": {"en": "API keys let your own tools create sessions, read transcripts and activity. Treat them like passwords.", "fr": "Les clés API permettent à vos outils de créer des sessions, lire les transcriptions et l’activité. Traitez-les comme des mots de passe."},
-"Key name (e.g. Church website)": {"en": "Key name (e.g. Church website)", "fr": "Nom de la clé (ex. Site de l’église)"},
+"Key name (e.g. Company website)": {"en": "Key name (e.g. Company website)", "fr": "Nom de la clé (ex. Site de l’entreprise)"},
 "Create a key": {"en": "Create a key", "fr": "Créer une clé"},
 "Copy this key now: it will not be shown again.": {"en": "Copy this key now: it will not be shown again.", "fr": "Copiez cette clé maintenant : elle ne sera plus affichée."},
 "Done": {"en": "Done", "fr": "Terminé"},

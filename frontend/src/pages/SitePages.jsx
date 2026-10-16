@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { ArrowRight, CircleCheck, Plus } from "lucide-react";
+import { ArrowRight, CircleCheck, Plus, Check } from "lucide-react";
 import { SiteLayout, useCopy, Icon, img } from "../site/SiteLayout";
-import { PRODUCTS, SOLUTIONS, COMMON, HOME, HOW, SECURITY_PAGE, DEMO, NAV } from "../site/content";
+import { PRODUCTS, USECASES, CATEGORIES, FEATURES, COMMON, HOME, HOW, SECURITY_PAGE, DEMO, NAV } from "../site/content";
 import { API } from "../lib/api";
 import { useLocale } from "../context/LocaleContext";
 
@@ -32,6 +32,11 @@ const CtaBand = () => {
   return <section className="ts-section"><div className="ts-wrap"><div className="ts-cta"><h2>{h.cta.title}</h2><Link to="/demo" className="ts-btn ts-btn-white">{h.cta.button}<ArrowRight size={18} /></Link></div></div></section>;
 };
 
+// Same category first, then the rest, four in total.
+const related = (products, p) => [...products.filter((x) => x.cat === p.cat && x.slug !== p.slug), ...products.filter((x) => x.cat !== p.cat)].slice(0, 4);
+
+const Tile = ({ p }) => <Link to={`/produits/${p.slug}`} className="ts-tile"><span><Icon name={p.icon} size={22} /></span><h3>{p.name}</h3><p>{p.short}</p></Link>;
+
 export function ProductPage() {
   const { slug } = useParams();
   const products = useCopy(PRODUCTS);
@@ -45,7 +50,7 @@ export function ProductPage() {
       <section className="ts-section soft"><div className="ts-wrap"><h2 className="ts-h2">{c.how}</h2><div className="ts-steps">{p.steps.map(([t, d]) => <article key={t}><h3>{t}</h3><p>{d}</p></article>)}</div></div></section>
       <section className="ts-section"><div className="ts-wrap"><h2 className="ts-h2">{c.features}</h2><div className="ts-feats">{p.features.map(([t, d]) => <div key={t}><CircleCheck size={20} /><span><b>{t}</b><p>{d}</p></span></div>)}</div></div></section>
       <section className="ts-section soft"><div className="ts-wrap"><h2 className="ts-h2 ts-center">{c.faq}</h2><Faq items={p.faq} /></div></section>
-      <section className="ts-section"><div className="ts-wrap"><h2 className="ts-h2">{c.related}</h2><div className="ts-tiles">{products.filter((x) => x.slug !== slug).slice(0, 4).map((x) => <Link key={x.slug} to={`/produits/${x.slug}`} className="ts-tile"><span><Icon name={x.icon} size={22} /></span><h3>{x.name}</h3><p>{x.short}</p></Link>)}</div></div></section>
+      <section className="ts-section"><div className="ts-wrap"><h2 className="ts-h2">{c.related}</h2><div className="ts-tiles">{related(products, p).map((x) => <Link key={x.slug} to={`/produits/${x.slug}`} className="ts-tile"><span><Icon name={x.icon} size={22} /></span><h3>{x.name}</h3><p>{x.short}</p></Link>)}</div></div></section>
       <CtaBand />
     </SiteLayout>
   );
@@ -53,43 +58,72 @@ export function ProductPage() {
 
 export function ProductsIndex() {
   const products = useCopy(PRODUCTS);
+  const cats = useCopy(CATEGORIES);
+  const c = useCopy(COMMON);
   const h = useCopy(HOME);
   const nav = useCopy(NAV);
   return (
     <SiteLayout>
       <PageHero eyebrow={nav.products} title={h.bundle.title} lead={h.bundle.lead} image="screen" />
-      <section className="ts-section"><div className="ts-wrap"><div className="ts-tiles">{products.map((p) => <Link key={p.slug} to={`/produits/${p.slug}`} className="ts-tile"><span><Icon name={p.icon} size={22} /></span><h3>{p.name}</h3><p>{p.short}</p></Link>)}</div></div></section>
+      <section className="ts-section"><div className="ts-wrap">{Object.entries(cats).map(([k, label]) => (
+        <div className="ts-cat" key={k}><h2>{label}</h2><div className="ts-tiles">{products.filter((p) => p.cat === k).map((p) => <Tile key={p.slug} p={p} />)}</div></div>
+      ))}<p style={{ marginTop: 36 }}><Link to="/fonctionnalites" className="ts-link">{c.allFeatures}<ArrowRight size={16} /></Link></p></div></section>
       <CtaBand />
     </SiteLayout>
   );
 }
 
-export function SolutionPage() {
+const UC_PRODUCTS = {
+  reunions: ["teams", "zoom", "traduction", "transcriptions"],
+  conferences: ["traduction", "ecran-de-salle", "interpretes", "image-de-marque"],
+  webinaires: ["diffusion", "passerelle-sous-titres", "sous-titres-video", "resumes"],
+  formations: ["sous-titres", "transcriptions", "resumes", "traduction"],
+  "evenements-hybrides": ["ecran-de-salle", "passerelle-sous-titres", "diffusion", "traduction"],
+  "accueil-du-public": ["traduction", "sous-titres", "interpretes", "espace-de-travail"],
+};
+
+export function UseCasePage() {
   const { slug } = useParams();
-  const solutions = useCopy(SOLUTIONS);
+  const usecases = useCopy(USECASES);
+  const products = useCopy(PRODUCTS);
   const c = useCopy(COMMON);
   const nav = useCopy(NAV);
-  const s = solutions.find((x) => x.slug === slug);
-  if (!s) return <Navigate to="/solutions" replace />;
+  const u = usecases.find((x) => x.slug === slug);
+  if (!u) return <Navigate to="/cas-usage" replace />;
+  const picks = (UC_PRODUCTS[slug] || []).map((s) => products.find((p) => p.slug === s)).filter(Boolean);
   return (
     <SiteLayout>
-      <PageHero crumbs={[["/", "TranslateBox"], ["/solutions", nav.solutions], [null, s.name]]} eyebrow={s.name} title={s.title} lead={s.lead} image={slug === "eglises" || slug === "education" ? "captions" : "screen"} />
-      <section className="ts-section soft"><div className="ts-wrap"><h2 className="ts-h2">{c.needs}</h2><div className="ts-needs">{s.needs.map(([t, d]) => <article key={t}><h3>{t}</h3><p>{d}</p></article>)}</div>
-        <h3 className="ts-h3" style={{ marginTop: 40 }}>{c.included}</h3><div className="ts-chips">{s.points.map((x) => <span key={x}><CircleCheck size={16} />{x}</span>)}</div></div></section>
-      <section className="ts-section"><div className="ts-wrap"><h2 className="ts-h2">{nav.products}</h2><div className="ts-tiles">{useCopy(PRODUCTS).slice(0, 4).map((x) => <Link key={x.slug} to={`/produits/${x.slug}`} className="ts-tile"><span><Icon name={x.icon} size={22} /></span><h3>{x.name}</h3><p>{x.short}</p></Link>)}</div></div></section>
+      <PageHero crumbs={[["/", "TranslateBox"], ["/cas-usage", nav.usecases], [null, u.name]]} eyebrow={u.name} title={u.title} lead={u.lead} image={slug === "formations" || slug === "accueil-du-public" ? "captions" : "screen"} />
+      <section className="ts-section soft"><div className="ts-wrap"><h2 className="ts-h2">{c.needs}</h2><div className="ts-needs">{u.needs.map(([t, d]) => <article key={t}><h3>{t}</h3><p>{d}</p></article>)}</div>
+        <div className="ts-chips" style={{ marginTop: 30 }}>{u.points.map((x) => <span key={x}><CircleCheck size={16} />{x}</span>)}</div></div></section>
+      <section className="ts-section"><div className="ts-wrap"><h2 className="ts-h2">{c.included}</h2><div className="ts-tiles">{picks.map((p) => <Tile key={p.slug} p={p} />)}</div></div></section>
       <CtaBand />
     </SiteLayout>
   );
 }
 
-export function SolutionsIndex() {
-  const solutions = useCopy(SOLUTIONS);
+export function UseCasesIndex() {
+  const usecases = useCopy(USECASES);
   const h = useCopy(HOME);
   const nav = useCopy(NAV);
   return (
     <SiteLayout>
-      <PageHero eyebrow={nav.solutions} title={h.segments.title} lead={h.segments.lead} image="captions" />
-      <section className="ts-section"><div className="ts-wrap"><div className="ts-segments">{solutions.map((s) => <Link key={s.slug} to={`/solutions/${s.slug}`} className="ts-seg"><span><Icon name={s.icon} /></span><div><h3>{s.name}</h3><p>{s.lead}</p></div></Link>)}</div></div></section>
+      <PageHero eyebrow={nav.usecases} title={h.usecases.title} lead={h.usecases.lead} image="screen" />
+      <section className="ts-section"><div className="ts-wrap"><div className="ts-segments">{usecases.map((u) => <Link key={u.slug} to={`/cas-usage/${u.slug}`} className="ts-seg"><span><Icon name={u.icon} /></span><div><h3>{u.name}</h3><p>{u.lead}</p></div></Link>)}</div></div></section>
+      <CtaBand />
+    </SiteLayout>
+  );
+}
+
+export function FeaturesPage() {
+  const f = useCopy(FEATURES);
+  const nav = useCopy(NAV);
+  return (
+    <SiteLayout>
+      <PageHero eyebrow={nav.features} title={f.title} lead={f.lead} image="sessions" />
+      <section className="ts-section soft"><div className="ts-wrap ts-fgroups">{f.groups.map(([icon, title, items]) => (
+        <article className="ts-fgroup" key={title}><span><Icon name={icon} size={22} /></span><h2>{title}</h2><ul>{items.map((i) => <li key={i}><Check size={16} />{i}</li>)}</ul></article>
+      ))}</div></section>
       <CtaBand />
     </SiteLayout>
   );

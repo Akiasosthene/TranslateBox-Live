@@ -22,7 +22,7 @@ export const STUDIO_VOICES = [
 
 export const VOICE_STYLES = {
   interpreter: { label: "Interpreter", text: "Speak like a professional simultaneous interpreter: clear, natural, steady pace, warm but neutral. Never dramatize." },
-  sermon: { label: "Sermon", text: "Speak with conviction and warmth, like an interpreter for a preacher. Keep emphasis and rhythm, stay clear and natural." },
+  sermon: { label: "Keynote", text: "Speak with conviction and warmth, like an interpreter for a keynote speaker. Keep emphasis and rhythm, stay clear and natural." },
   lecture: { label: "Lecture", text: "Speak calmly and precisely, like an interpreter at a scientific conference. Articulate numbers, names and technical terms." },
   gentle: { label: "Gentle", text: "Speak softly, slowly and reassuringly." },
 };

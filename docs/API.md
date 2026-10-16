@@ -35,8 +35,8 @@ Public endpoints (no token): `GET /api/health`, `GET /api/events/{id}`, `GET /ap
 
 ```json
 {
-  "name": "Sunday service",
-  "organization": "My church",
+  "name": "Annual conference",
+  "organization": "My company",
   "target_language": "en",
   "extra_languages": ["fr", "es"],
   "human_languages": ["es"],
@@ -44,7 +44,7 @@ Public endpoints (no token): `GET /api/health`, `GET /api/events/{id}`, `GET /ap
   "captions": true,
   "start_at": "2026-11-01T15:00:00Z",
   "duration_minutes": 90,
-  "labels": ["Sunday"],
+  "labels": ["Keynote"],
   "pinned": false,
   "archive_transcripts": true
 }

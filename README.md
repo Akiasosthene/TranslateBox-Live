@@ -82,7 +82,7 @@ docker compose up -d --build
 
 ## Site public (V3.2)
 
-- Site au format SaaS classique : bandeau d’annonce, menus Produits / Solutions / Ressources, accueil (titre produit, statistiques, avant/pendant/après, huit produits, avantages, segments, fonctionnalités et avantages, démo), pages produits `/produits/:slug` (traduction, sous-titres, transcriptions, résumés, écran de salle, interprètes, intégrations, doublage), pages solutions `/solutions/:slug` (églises, conférences, éducation, gouvernement, associations, entreprises), `/comment-ca-marche`, `/faq`, `/securite`, `/demo`. Bilingue FR/EN. Les images sont de vraies captures de l’application (`frontend/public/site/`).
+- Site au format SaaS classique, centré produits : bandeau d’annonce, menu Produits en quatre catégories (traduction et sous-titres, réunions et diffusion, après l’événement, plateforme), menu Cas d’usage (réunions, conférences, webinaires, formations, événements hybrides, accueil du public), Ressources. 15 pages produits `/produits/:slug`, pages `/cas-usage/:slug` (`/solutions/*` redirige), `/fonctionnalites`, `/comment-ca-marche`, `/faq`, `/securite`, `/demo`. Bilingue FR/EN. Les images sont de vraies captures de l’application (`frontend/public/site/`).
 - Les demandes de démo arrivent dans Portail → Demandes (administrateurs) : statut, courriel, export CSV. Aucun courriel n’est envoyé automatiquement.
 - Aucun chiffre, client, avis ou certification inventé : uniquement des faits sur l’application.
 

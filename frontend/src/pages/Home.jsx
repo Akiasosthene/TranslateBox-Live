@@ -2,12 +2,12 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, CircleCheck, ShieldCheck } from "lucide-react";
 import { SiteLayout, useCopy, Icon, img } from "../site/SiteLayout";
-import { HOME, PRODUCTS, SOLUTIONS, COMMON } from "../site/content";
+import { HOME, PRODUCTS, USECASES, COMMON } from "../site/content";
 
 export default function Home() {
   const h = useCopy(HOME);
   const products = useCopy(PRODUCTS);
-  const solutions = useCopy(SOLUTIONS);
+  const usecases = useCopy(USECASES);
   const c = useCopy(COMMON);
   return (
     <SiteLayout>
@@ -64,6 +64,7 @@ export default function Home() {
           <div className="ts-center"><h2 className="ts-h2">{h.bundle.title}</h2><p className="ts-lead">{h.bundle.lead}</p></div>
           <div className="ts-tiles">
             {products.map((p) => <Link key={p.slug} to={`/produits/${p.slug}`} className="ts-tile"><span><Icon name={p.icon} size={22} /></span><h3>{p.name}</h3><p>{p.short}</p></Link>)}
+            <Link to="/fonctionnalites" className="ts-tile"><span><Icon name="ListChecks" size={22} /></span><h3>{c.features}</h3><p>{c.allFeatures} →</p></Link>
           </div>
         </div>
       </section>
@@ -80,9 +81,9 @@ export default function Home() {
 
       <section className="ts-section">
         <div className="ts-wrap">
-          <div className="ts-center"><h2 className="ts-h2">{h.segments.title}</h2><p className="ts-lead">{h.segments.lead}</p></div>
+          <div className="ts-center"><h2 className="ts-h2">{h.usecases.title}</h2><p className="ts-lead">{h.usecases.lead}</p></div>
           <div className="ts-segments">
-            {solutions.map((s) => <Link key={s.slug} to={`/solutions/${s.slug}`} className="ts-seg"><span><Icon name={s.icon} /></span><div><h3>{s.name}</h3><p>{s.title}</p></div></Link>)}
+            {usecases.map((u) => <Link key={u.slug} to={`/cas-usage/${u.slug}`} className="ts-seg"><span><Icon name={u.icon} /></span><div><h3>{u.name}</h3><p>{u.title}</p></div></Link>)}
           </div>
         </div>
       </section>
