@@ -33,7 +33,7 @@ export class OperatorBroadcaster {
             clearTimeout(timer); resolve();
           } catch (error) { fail(error.message || 'Audio capture failed'); }
         }
-        if (message.type === 'listeners') this.onCount(message.count);
+        if (message.type === 'listeners') this.onCount(message.count, message.total ?? message.count);
       };
       ws.onerror = () => fail('Broadcast connection failed');
       ws.onclose = ({ code }) => {

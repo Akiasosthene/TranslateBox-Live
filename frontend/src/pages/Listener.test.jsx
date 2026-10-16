@@ -103,3 +103,16 @@ test('wrong PIN stops retrying and asks for the PIN', async () => {
   expect(screen.getByTestId('listener-error').textContent).toContain('Incorrect PIN');
   expect(screen.getByTestId('listener-pin-input')).toBeTruthy();
 });
+
+test('multi-language event lets the listener pick and switch language', async () => {
+  global.fetch = vi.fn().mockResolvedValue({ok: true, json: async () => ({name: 'Test event', target: 'fr', targets: ['fr', 'es'], pin_protected: false, live: true})});
+  global.WebSocket = class { constructor(url) { this.url = url; sockets.push(this); } close = vi.fn(); send = vi.fn(); };
+  renderPage();
+  await screen.findByText('Test event');
+  fireEvent.click(screen.getByTestId('listener-lang-es'));
+  await listen();
+  expect(sockets[0].url).toContain('lang=es');
+  fireEvent.click(screen.getByTestId('listener-lang-fr'));
+  expect(sockets.at(-1).url).toContain('lang=fr');
+  expect(players[0].clear).toHaveBeenCalled();
+});

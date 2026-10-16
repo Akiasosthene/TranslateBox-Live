@@ -36,6 +36,15 @@ STUDIO_VOICES = {
     "sage", "shimmer", "verse", "marin", "cedar",
 }
 TTS_RATE_MAX = int(os.environ.get("TTS_RATE_LIMIT_MAX", "300"))
+# Post-session AI summaries (Responses API).
+OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+SUMMARY_MODEL = os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-6-luna")
+SUMMARY_MAX_BODY = int(os.environ.get("SUMMARY_MAX_BODY_BYTES", "600000"))
+LANGUAGE_NAMES = {
+    "en": "English", "es": "Spanish", "pt": "Portuguese", "fr": "French", "ja": "Japanese",
+    "ru": "Russian", "zh": "Chinese", "de": "German", "ko": "Korean", "hi": "Hindi",
+    "id": "Indonesian", "vi": "Vietnamese", "it": "Italian",
+}
 _http_client: "httpx.AsyncClient | None" = None
 
 
@@ -131,13 +140,14 @@ class BodyLimitMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["method"] not in {"POST", "PUT", "PATCH"}:
             return await self.app(scope, receive, send)
+        limit = SUMMARY_MAX_BODY if scope.get("path") == "/api/summary" else MAX_BODY_BYTES
         chunks, size = [], 0
         while True:
             message = await receive()
             if message["type"] == "http.disconnect":
                 return
             size += len(message.get("body", b""))
-            if size > MAX_BODY_BYTES:
+            if size > limit:
                 return await JSONResponse({"detail": "Request body too large."}, 413)(scope, receive, send)
             chunks.append(message.get("body", b""))
             if not message.get("more_body", False):
@@ -372,6 +382,64 @@ async def studio_voice(req: TtsRequest, request: Request):
     })
 
 
+class SummaryRequest(BaseModel):
+    text: str = Field(min_length=20, max_length=200000)
+    language: str = Field(default="en", max_length=10)
+    title: str | None = Field(default=None, max_length=200)
+
+
+def _response_text(data: dict) -> str:
+    if isinstance(data.get("output_text"), str):
+        return data["output_text"]
+    parts = []
+    for item in data.get("output") or []:
+        for content in item.get("content") or [] if isinstance(item, dict) else []:
+            if isinstance(content, dict) and content.get("type") in ("output_text", "text") and isinstance(content.get("text"), str):
+                parts.append(content["text"])
+    return "\n".join(parts).strip()
+
+
+@api_router.post("/summary", dependencies=[Depends(require_operator)])
+async def summarize(req: SummaryRequest, request: Request):
+    """Summarize a finished session transcript. Nothing is stored server-side."""
+    if _rate_limited("summary:" + _client_ip(request), 20):
+        raise HTTPException(429, "Too many summary requests. Wait a minute and retry.")
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(503, "The translation service is not configured on the server.")
+    language = LANGUAGE_NAMES.get(req.language.lower(), "English")
+    instructions = (
+        f"You summarize transcripts of live-interpreted events. Write in {language}. "
+        "Use Markdown with these sections: '## Overview' (2-3 sentences), '## Key takeaways' (4-8 bullets), "
+        "'## Next steps' (only if the speakers mention actions, dates or commitments), "
+        "'## Notable quotes' (at most 3, copied exactly from the transcript). "
+        "Use only what is in the transcript. Do not invent names, numbers or facts. "
+        "The transcript comes from machine interpretation and may contain recognition errors; do not amplify them."
+    )
+    title = f"Event: {req.title}\n\n" if req.title else ""
+    payload = {
+        "model": SUMMARY_MODEL,
+        "instructions": instructions,
+        "input": f"{title}Transcript:\n{req.text}",
+        "store": False,
+    }
+    try:
+        resp = await _http().post(OPENAI_RESPONSES_URL, headers=_openai_headers(api_key), json=payload, timeout=120.0)
+    except httpx.RequestError as exc:
+        logger.error("Network error reaching summary service: %s", type(exc).__name__)
+        raise HTTPException(502, "The summary could not be created. Try again shortly.")
+    if resp.status_code >= 400:
+        logger.error("OpenAI summary error %s", resp.status_code)
+        _raise_upstream(resp.status_code, _upstream_code(resp.content), "summary model")
+    try:
+        summary = _response_text(resp.json())
+    except ValueError:
+        summary = ""
+    if not summary:
+        raise HTTPException(502, "The summary service returned no text. Try again shortly.")
+    return JSONResponse({"summary": summary, "model": SUMMARY_MODEL}, headers={"Cache-Control": "no-store"})
+
+
 # ==========================================================================
 # V1 — Multi-listener broadcast (ONE OpenAI session -> many listeners)
 # ==========================================================================
@@ -381,12 +449,32 @@ MAX_LISTENERS = int(os.environ.get("MAX_LISTENERS", "30"))
 MAX_EVENTS = int(os.environ.get("MAX_EVENTS", "100"))
 EVENT_TTL = int(os.environ.get("EVENT_TTL_SECONDS", "86400"))
 EVENTS = EventStore(os.environ.get("EVENTS_DB_PATH", str(ROOT_DIR / "data" / "events.sqlite3")))
-ROOMS = {}    # event_id -> {"operator", "listeners", "init", "format", "meta"}
+MAX_LANGUAGES = int(os.environ.get("MAX_LANGUAGES_PER_EVENT", "5"))
+# One room per (event, output language). Each room has its own operator
+# channel (one OpenAI session) and its own listeners.
+ROOMS = {}    # "eid:lang" -> {"operator", "listeners", "audio_off", "init", "format", "rate", "meta"}
 AUDIO_FORMATS = {"pcm16": 16000, "webm": None}
 
 
-def _room(eid):
-    return ROOMS.setdefault(eid, {"operator": None, "listeners": set(), "init": None, "format": "pcm16", "rate": 16000, "meta": {}})
+def _targets(eid) -> list:
+    ev = EVENTS.get(eid) or {}
+    return list(ev.get("targets") or ([ev["target"]] if ev.get("target") else []))
+
+
+def _room(eid, lang=None):
+    lang = lang or (_targets(eid) or ["en"])[0]
+    return ROOMS.setdefault(f"{eid}:{lang}", {
+        "operator": None, "listeners": set(), "audio_off": set(), "init": None,
+        "format": "pcm16", "rate": 16000, "meta": {}, "eid": eid, "lang": lang,
+    })
+
+
+def _event_rooms(eid):
+    return [ROOMS[key] for key in [f"{eid}:{lang}" for lang in _targets(eid)] if key in ROOMS]
+
+
+def _event_listener_count(eid) -> int:
+    return sum(len(r["listeners"]) for r in _event_rooms(eid))
 
 
 def _clean_meta(raw: dict) -> dict:
@@ -406,16 +494,30 @@ class EventCreate(BaseModel):
     name: str = Field(default="Live Interpretation", max_length=200)
     organization: str = Field(default="", max_length=200)
     target_language: str = Field(default="en", max_length=10)
+    extra_languages: list[str] = Field(default_factory=list, max_length=10)
     pin: str | None = Field(default=None, max_length=64)
     captions: bool = False
 
 
+def _resolve_targets(primary: str, extra: list) -> list:
+    targets = []
+    for lang in [primary, *extra]:
+        lang = _resolve_target_language(lang)
+        if lang not in targets:
+            targets.append(lang)
+    if len(targets) > MAX_LANGUAGES:
+        raise HTTPException(400, f"An event can offer at most {MAX_LANGUAGES} languages.")
+    return targets
+
+
 def _prune_events():
     for eid, event in list(EVENTS.items()):
-        room = ROOMS.get(eid, {})
-        if time.time() - event["created"] > EVENT_TTL and not room.get("operator") and not room.get("listeners"):
+        rooms = _event_rooms(eid)
+        busy = any(r["operator"] or r["listeners"] for r in rooms)
+        if time.time() - event["created"] > EVENT_TTL and not busy:
             EVENTS.pop(eid, None)
-            ROOMS.pop(eid, None)
+            for key in [k for k in ROOMS if k.startswith(eid + ":")]:
+                ROOMS.pop(key, None)
 
 
 @api_router.post("/events", dependencies=[Depends(require_operator)])
@@ -423,13 +525,15 @@ async def create_event(body: EventCreate):
     _prune_events()
     if len(EVENTS) >= MAX_EVENTS:
         raise HTTPException(429, "Event capacity reached. Try again later.")
-    target = _resolve_target_language(body.target_language)
+    targets = _resolve_targets(body.target_language, body.extra_languages)
+    target = targets[0]
     eid = secrets.token_urlsafe(12)
     token = secrets.token_urlsafe(32)
     EVENTS[eid] = {
         "name": body.name or "Live Interpretation",
         "organization": body.organization or "",
         "target": target,
+        "targets": targets,
         "operator_token_hash": hashlib.sha256(token.encode()).hexdigest(),
         "pin_hash": hashlib.sha256(body.pin.encode()).hexdigest() if body.pin else None,
         "captions": bool(body.captions),
@@ -444,11 +548,15 @@ def _public_event(eid):
     ev = EVENTS.get(eid)
     if not ev:
         return None
-    room = ROOMS.get(eid, {})
+    channels = []
+    for lang in _targets(eid):
+        room = ROOMS.get(f"{eid}:{lang}", {})
+        channels.append({"lang": lang, "live": bool(room.get("operator")), "listeners": len(room.get("listeners", ()))})
     return {
         "name": ev["name"], "organization": ev["organization"], "target": ev["target"],
+        "targets": _targets(eid), "channels": channels,
         "captions": ev["captions"], "pin_protected": ev["pin_hash"] is not None,
-        "live": bool(room.get("operator")), "listeners": len(room.get("listeners", [])),
+        "live": any(c["live"] for c in channels), "listeners": sum(c["listeners"] for c in channels),
         "max_listeners": MAX_LISTENERS,
         "created": ev["created"],
         "expires_at": ev["created"] + EVENT_TTL,
@@ -466,7 +574,7 @@ async def resume_event(eid: str):
     _prune_events()
     if eid not in EVENTS:
         raise HTTPException(404, "Event expired or not found. Create a new event.")
-    if _room(eid)["operator"] is not None:
+    if any(r["operator"] is not None for r in _event_rooms(eid)):
         raise HTTPException(409, "This event is already broadcasting in another tab. Stop it there before resuming.")
     token = secrets.token_urlsafe(32)
     EVENTS[eid] = {**EVENTS[eid], "operator_token_hash": hashlib.sha256(token.encode()).hexdigest()}
@@ -497,35 +605,40 @@ async def stats():
         "ram_percent": psutil.virtual_memory().percent,
         "openai_sessions": sum(bool(r.get("operator")) for r in ROOMS.values()),
         "total_listeners": sum(len(r["listeners"]) for r in ROOMS.values()),
-        "events": [{"id": eid, "listeners": len(r["listeners"]), "live": bool(r["operator"])} for eid, r in ROOMS.items()],
+        "events": [{"id": r["eid"], "lang": r["lang"], "listeners": len(r["listeners"]), "live": bool(r["operator"])} for r in ROOMS.values()],
         "max_listeners": MAX_LISTENERS,
     }
 
 
 async def _notify_operator(eid):
-    room = _room(eid)
-    if room["operator"]:
-        try:
-            await asyncio.wait_for(room["operator"].send_json({"type": "listeners", "count": len(room["listeners"])}), timeout=2)
-        except Exception:
-            pass
+    total = _event_listener_count(eid)
+    for room in _event_rooms(eid):
+        if room["operator"]:
+            try:
+                await asyncio.wait_for(room["operator"].send_json({"type": "listeners", "count": len(room["listeners"]), "total": total}), timeout=2)
+            except Exception:
+                pass
 
 
-async def _broadcast_status(eid, live):
-    room = _room(eid)
+async def _broadcast_status(room, live):
     await _fanout(room, "send_json", {**_listener_status(room), "live": live})
 
 async def _fanout(room, method, data):
+    targets = list(room["listeners"])
+    if method == "send_bytes":
+        targets = [listener for listener in targets if listener not in room["audio_off"]]
+
     async def deliver(listener):
         try:
             await asyncio.wait_for(getattr(listener, method)(data), timeout=2)
         except Exception:
             room["listeners"].discard(listener)
+            room["audio_off"].discard(listener)
             try:
                 await asyncio.wait_for(listener.close(code=1013), timeout=1)
             except Exception:
                 pass
-    await asyncio.gather(*(deliver(listener) for listener in list(room["listeners"])))
+    await asyncio.gather(*(deliver(listener) for listener in targets))
 
 
 async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str = "pcm16", rate: int = 16000):
@@ -535,8 +648,8 @@ async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str 
     room["rate"] = rate
     room["meta"] = {}
     try:
-        await websocket.send_json({"type": "ready"})
-        await _broadcast_status(eid, True)
+        await websocket.send_json({"type": "ready", "lang": room["lang"]})
+        await _broadcast_status(room, True)
         await _notify_operator(eid)
         while True:
             msg = await websocket.receive()
@@ -572,17 +685,19 @@ async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str 
         room["operator"] = None
         room["init"] = None
         with anyio.CancelScope(shield=True):
-            await _broadcast_status(eid, False)
+            await _broadcast_status(room, False)
 
 
-async def _run_listener(websocket: WebSocket, eid: str, room, pin):
+async def _run_listener(websocket: WebSocket, eid: str, room, pin, wants_audio=True):
     if not _check_pin(eid, pin):
         await websocket.close(code=4401)
         return
-    if len(room["listeners"]) >= MAX_LISTENERS:
+    if _event_listener_count(eid) >= MAX_LISTENERS:
         await websocket.close(code=4429)
         return
     room["listeners"].add(websocket)
+    if not wants_audio:
+        room["audio_off"].add(websocket)
     await _notify_operator(eid)
     try:
         await websocket.send_json(_listener_status(room))
@@ -596,11 +711,12 @@ async def _run_listener(websocket: WebSocket, eid: str, room, pin):
         pass
     finally:
         room["listeners"].discard(websocket)
+        room["audio_off"].discard(websocket)
         await _notify_operator(eid)
 
 
 @app.websocket("/api/ws/{eid}")
-async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener"):
+async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener", lang: str | None = None, audio: str = "1"):
     _prune_events()
     if eid not in EVENTS:
         await websocket.accept()
@@ -614,7 +730,11 @@ async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener"):
     if _rate_limited("ws:" + _client_ip(websocket), 120):
         await websocket.close(code=4429)
         return
-    room = _room(eid)
+    lang = (lang or _targets(eid)[0]).lower()
+    if lang not in _targets(eid):
+        await websocket.close(code=4404)
+        return
+    room = _room(eid, lang)
     try:
         auth = await asyncio.wait_for(websocket.receive_json(), timeout=10)
         if not isinstance(auth, dict):
@@ -648,7 +768,7 @@ async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener"):
         if pin is not None and not isinstance(pin, str):
             await websocket.close(code=4401)
             return
-        await _run_listener(websocket, eid, room, pin)
+        await _run_listener(websocket, eid, room, pin, wants_audio=audio != "0")
     else:
         await websocket.close(code=4400)
 

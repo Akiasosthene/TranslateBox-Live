@@ -121,6 +121,7 @@ export class TranslationEngine {
 
   // ---- input level meter (no output routing => no feedback) ----
   _startMeter(stream) {
+    if (!this.h.onLevel) return; // secondary language channels need no meter
     try {
       this._audioCtx = this._audioCtx || new (window.AudioContext || window.webkitAudioContext)();
       if (this._audioCtx.state === "suspended") this._audioCtx.resume().catch(() => {});

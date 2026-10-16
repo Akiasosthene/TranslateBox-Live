@@ -4,6 +4,8 @@ import { MODES, EMPTY_PROFILE, compileInstructions } from "../lib/profiles";
 import { getTarget } from "../lib/languages";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { useBroadcast } from "../hooks/useBroadcast";
+import { SegmentRecorder } from "../lib/transcript";
+import { operatorFetch, responseError } from "../lib/api";
 import { SpeechPipeline, STUDIO_VOICES, VOICE_STYLES, applyGlossary, parseGlossary, previewVoice as requestPreview } from "../lib/speech";
 
 import { API } from "../lib/api";
@@ -80,6 +82,9 @@ export function TranslationProvider({ children }) {
   const [glossary, setGlossary] = usePersistentState("tbl-glossary", "");
   const [previewing, setPreviewing] = useState(false);
   const speechRef = useRef(null);
+  const [extraLangs, setExtraLangs] = usePersistentState("tbl-extra-langs", []);
+  // Timed transcripts for subtitle export and summaries (tab memory only).
+  const recordersRef = useRef({ source: new SegmentRecorder(), target: new SegmentRecorder() });
 
   const engineRef = useRef(null);
   const audioRef = useRef(null);
@@ -91,6 +96,8 @@ export function TranslationProvider({ children }) {
       handlers: {
         onStatus: (patch) => setStatus((s) => ({ ...s, ...patch })),
         onTranscript: ({ side, delta, segmentBreak }) => {
+          const rec = recordersRef.current[side];
+          if (rec) { if (segmentBreak) rec.end(); else rec.delta(delta); }
           if (side === "target" && speechRef.current) {
             if (segmentBreak) speechRef.current.endSegment();
             else speechRef.current.feed(delta);
@@ -205,6 +212,8 @@ export function TranslationProvider({ children }) {
   const start = useCallback(async () => {
     if (engineRef.current.active) return true;
     setError(null);
+    recordersRef.current.source.reset();
+    recordersRef.current.target.reset();
     setSourceText("");
     setTargetText("");
     setDuration(0);
@@ -237,9 +246,13 @@ export function TranslationProvider({ children }) {
     engineRef.current.stop();
     setActive(false);
     stopTimer();
+    recordersRef.current.source.end();
+    recordersRef.current.target.end();
     if (!saveTranscripts) {
       setSourceText("");
       setTargetText("");
+      recordersRef.current.source.reset();
+      recordersRef.current.target.reset();
     }
   }, [saveTranscripts]);
 
@@ -301,7 +314,39 @@ export function TranslationProvider({ children }) {
     setTesting(false);
   }, []);
 
-  const broadcast = useBroadcast({ API, engineRef, targetLang, profile, start, stop, setError, targetText: captionText, active, setTargetLang, voiceMeta });
+  const channelStartArgs = useCallback((lang) => ({
+    deviceId: selectedDevice,
+    ambient: ambientMode,
+    instructions: compileInstructions({ modeKey, customText: customInstructions, targetName: getTarget(lang).name, profile }),
+  }), [selectedDevice, ambientMode, modeKey, customInstructions, profile]);
+  const channelVoiceConfig = useMemo(() => ({
+    voiceMode, voice: studioVoice, voiceLabel: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label, style: voiceStyle, glossary,
+  }), [voiceMode, studioVoice, voiceStyle, glossary]);
+
+  const broadcast = useBroadcast({
+    API, engineRef, targetLang, profile, start, stop, setError, targetText: captionText, active, setTargetLang,
+    voiceMeta, extraLangs, setExtraLangs, channelStartArgs, channelVoiceConfig, keepTranscripts: saveTranscripts,
+  });
+
+  // Transcripts per language: primary target, extra channels, and the source.
+  const transcripts = useCallback(() => {
+    const out = [{ key: "source", lang: sourceLang === "auto" ? "src" : sourceLang, label: "Source", recorder: recordersRef.current.source }];
+    out.push({ key: targetLang, lang: targetLang, label: getTarget(targetLang).name, recorder: recordersRef.current.target });
+    const extra = new Map(broadcast.archiveRef.current);
+    for (const ch of broadcast.extrasRef.current.values()) extra.set(ch.lang, ch.recorder);
+    for (const [lang, recorder] of extra) out.push({ key: lang, lang, label: getTarget(lang).name, recorder });
+    return out;
+  }, [sourceLang, targetLang, broadcast.extrasRef, broadcast.archiveRef]);
+
+  const summarize = useCallback(async ({ text, lang }) => {
+    const res = await operatorFetch(`${API}/summary`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: applyGlossary(text, glossaryRules).slice(-190000), language: lang, title: profile.eventName || broadcast.eventInfo?.name || null }),
+    });
+    if (!res.ok) throw new Error(await responseError(res, "The summary could not be created."));
+    return (await res.json()).summary;
+  }, [glossaryRules, profile.eventName, broadcast.eventInfo]);
 
   useEffect(() => () => {
     engineRef.current.stop();
@@ -325,6 +370,7 @@ export function TranslationProvider({ children }) {
     clearError: () => setError(null),
     voiceMode, setVoiceMode, studioVoice, setStudioVoice, voiceStyleKey, setVoiceStyleKey,
     customVoiceStyle, setCustomVoiceStyle, glossary, setGlossary, previewVoice, previewing,
+    extraLangs, setExtraLangs, transcripts, summarize,
     MODES,
   };
 

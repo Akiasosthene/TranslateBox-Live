@@ -39,3 +39,9 @@ test('pipeline speaks sentences in order and only when enabled', async () => {
     expect(JSON.parse(fetch.mock.calls[0][1].body).voice).toBe('marin');
   } finally { vi.unstubAllGlobals(); }
 });
+
+test('an empty right-hand side blocks a word', () => {
+  const rules = parseGlossary('darn =>\nfoo = ');
+  expect(rules).toHaveLength(1);
+  expect(applyGlossary('Well darn, that is it.', rules)).toBe('Well, that is it.');
+});

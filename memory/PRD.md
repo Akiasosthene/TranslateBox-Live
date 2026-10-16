@@ -76,3 +76,10 @@ Applied code-review fixes without changing behavior:
 - Listener bundle split from the operator console (≈93 kB gzip instead of ≈170 kB).
 - Caddy: no compression and no buffering on streamed voice audio.
 - Not yet verified on real devices: studio-voice latency, iPhone lock-screen behaviour, 30-listener load.
+
+## V2.1 (2026-10) — Parity with hosted AI-interpretation tools
+- Multi-language events: up to 5 output languages; one room per (event, language) on the server; one ExtraChannel per extra language on the operator (own OpenAI session, studio voice, captions, transcript). Listener language picker with live switching. Listener cap counts the whole event.
+- Room screen `/e/:id/screen`: caption-only connection (`audio=0`, no audio bytes sent), large captions, QR code, caption language switch, wake lock.
+- Timed transcripts per language with TXT/SRT/VTT export; `/api/summary` (Responses API, store=false, model `OPENAI_SUMMARY_MODEL`).
+- Glossary block rule (`word =>`).
+- Not built (out of scope for a self-hosted operator app): Zoom/Teams/Cvent integrations, CEA-608 caption encoder, SSO, workspaces, minute billing, human interpreters, post-event AI dubbing.

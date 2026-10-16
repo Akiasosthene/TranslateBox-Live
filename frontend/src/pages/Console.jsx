@@ -8,6 +8,7 @@ import { SetupChecklist } from "../components/SetupChecklist";
 import { BroadcastPanel } from "../components/BroadcastPanel";
 import { AudioControlCard } from "../components/console/AudioControlCard";
 import { VoiceCard } from "../components/console/VoiceCard";
+import { TranscriptCard } from "../components/console/TranscriptCard";
 import { TransportControls } from "../components/console/TransportControls";
 import { getTarget, sourceLabel } from "../lib/languages";
 
@@ -76,6 +77,8 @@ export default function Console() {
         </div>
 
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5">{panels}</section>
+
+        <TranscriptCard />
 
         <p className="text-center text-[11px] text-slate-400 dark:text-slate-600 font-mono">{t("Audio processed in real time · no audio files recorded by this app · use headphones to avoid echo")}</p>
       </main>

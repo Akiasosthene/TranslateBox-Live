@@ -6,7 +6,7 @@ vi.mock('../lib/api', () => ({operatorFetch: vi.fn(), responseError: async () =>
 beforeEach(() => { const values=new Map(); vi.stubGlobal('localStorage', {getItem:k=>values.get(k) ?? null, setItem:(k,v)=>values.set(k,v), clear:()=>values.clear()}); });
 afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 const event = {id:'saved', target:'fr', captions:true, listeners:2, operator_token:'renewed'};
-function props(active=false) {return {API:'/api', engineRef:{current:{}}, targetLang:'en', profile:{}, start:vi.fn(), stop:vi.fn(), setError:vi.fn(), targetText:'', active, setTargetLang:vi.fn()};}
+function props(active=false) {return {API:'/api', engineRef:{current:{}}, targetLang:'en', profile:{}, start:vi.fn(), stop:vi.fn(), setError:vi.fn(), targetText:'', active, setTargetLang:vi.fn(), setExtraLangs:vi.fn(), extraLangs:[], channelStartArgs:()=>({})};}
 test('resuming restores language and captions while preserving the event link', async () => {
  operatorFetch.mockImplementation(async (_url, options) => ({ok:true, json:async () => options?.method === 'POST' ? event : {events:[event]}}));
  const options=props(); const {result}=renderHook(() => useBroadcast(options));
@@ -14,6 +14,7 @@ test('resuming restores language and captions while preserving the event link', 
  await act(async () => {await result.current.resumeEvent('saved');});
  expect(result.current.eventInfo).toEqual(event);
  expect(options.setTargetLang).toHaveBeenCalledWith('fr');
+ expect(options.setExtraLangs).toHaveBeenCalledWith([]);
  expect(result.current.captionsToListeners).toBe(true);
  expect(operatorFetch).toHaveBeenCalledWith('/api/events/saved/resume', {method:'POST'});
 });
@@ -23,4 +24,15 @@ test('cannot replace event during an active translation session', async () => {
  await waitFor(() => expect(result.current.catalogLoading).toBe(false));
  await expect(result.current.resumeEvent('saved')).rejects.toThrow('Stop the current session');
  expect(operatorFetch).toHaveBeenCalledTimes(1);
+});
+
+test('new events send the extra listener languages', async () => {
+ operatorFetch.mockImplementation(async (_url, options) => ({ok:true, json:async () => options?.method === 'POST' ? {...event, id:'new', targets:['en','es','de']} : {events:[]}}));
+ const options={...props(), extraLangs:['es','en','de']};
+ const {result}=renderHook(() => useBroadcast(options));
+ await waitFor(() => expect(result.current.catalogLoading).toBe(false));
+ await act(async () => {await result.current.createEvent({name:'Talk'});});
+ const body=JSON.parse(operatorFetch.mock.calls.find(c => c[1]?.method === 'POST')[1].body);
+ expect(body.target_language).toBe('en');
+ expect(body.extra_languages).toEqual(['es','de']);
 });

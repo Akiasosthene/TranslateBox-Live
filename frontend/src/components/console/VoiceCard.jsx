@@ -85,7 +85,7 @@ export const VoiceCard = () => {
 
       <div className="pt-3 border-t border-slate-100 dark:border-slate-800/60">
         <p className={label}>{t("Corrections")}</p>
-        <p className="text-xs text-slate-500 mt-1">{t("One per line: wrong => right. Applied to listener captions and to the studio voice.")}</p>
+        <p className="text-xs text-slate-500 mt-1">{t("One per line: wrong => right. Leave the right side empty to hide a word. Applied to listener captions, the room screen, transcripts and the studio voice.")}</p>
         <textarea data-testid="glossary-input" value={glossary} onChange={(e) => setGlossary(e.target.value.slice(0, 4000))} rows={3}
           placeholder={"Breach Mender => Breach Mender House\nMonkton => Moncton"} className={`${input} py-2 font-mono`} />
       </div>

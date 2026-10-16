@@ -1,7 +1,8 @@
 import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { Radio, Users, QrCode as QrIcon, Play, Square, X } from "lucide-react";
+import { Radio, Users, QrCode as QrIcon, Play, Square, X, Monitor, Languages } from "lucide-react";
+import { TARGET_LANGUAGES, getTarget } from "../lib/languages";
 import { useTranslationSession } from "../context/TranslationContext";
 
 export const BroadcastPanel = () => {
@@ -10,7 +11,21 @@ export const BroadcastPanel = () => {
     eventInfo, createEvent, startEvent, stopEvent, restartBroadcast,
     savedEvents, catalogError, catalogLoading, refreshEvents, resumeEvent, newEvent,
     listeners, broadcasting, active, captionsToListeners, setCaptionsToListeners, status, level, metrics,
+    targetLang, extraLangs, setExtraLangs, channels, primaryListeners,
   } = useTranslationSession();
+  const MAX_EXTRA = 4;
+  const chosenExtras = (extraLangs || []).filter((l) => l !== targetLang);
+  const toggleExtra = (code) => setExtraLangs((cur) => {
+    const list = (cur || []).filter((l) => l !== targetLang);
+    return list.includes(code) ? list.filter((l) => l !== code) : list.length >= MAX_EXTRA ? list : [...list, code];
+  });
+  const screenUrl = eventInfo ? `${window.location.origin}/e/${eventInfo.id}/screen` : "";
+  const eventLangs = eventInfo ? (eventInfo.targets || [eventInfo.target]) : [];
+  const channelState = (lang, i) => {
+    if (i === 0) return { live: broadcasting, listeners: primaryListeners, state: broadcasting ? "live" : "idle" };
+    const ch = channels.find((c) => c.lang === lang);
+    return { live: ch?.state === "live", listeners: ch?.listeners || 0, state: ch?.state || "idle" };
+  };
 
   const [name, setName] = useState(t("Live Interpretation"));
   const [org, setOrg] = useState("");
@@ -54,7 +69,7 @@ export const BroadcastPanel = () => {
           {!catalogLoading && !catalogError && savedEvents.length === 0 && <p className="text-sm text-slate-500">{t("No saved event yet. Create one below.")}</p>}
           <ul className="max-h-48 overflow-auto space-y-2">
             {savedEvents.map(event => <li key={event.id} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate">{event.name} · {event.target.toUpperCase()}</span>
+              <span className="min-w-0 truncate">{event.name} · {(event.targets || [event.target]).map((l) => l.toUpperCase()).join(" · ")}</span>
               <button disabled={busy || active || event.live} onClick={async () => {setBusy(true); setError(""); try {await resumeEvent(event.id);} catch(e) {setError(e.message);} finally {setBusy(false);}}} className="shrink-0 px-3 py-2 rounded-lg border border-emerald-500 disabled:opacity-40">{event.live ? t("Live") : t("Resume")}</button>
             </li>)}
           </ul>
@@ -66,6 +81,18 @@ export const BroadcastPanel = () => {
           <input aria-label={t("Event name")} maxLength={200} data-testid="event-name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Event name")} className="h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm dark:text-slate-100" />
           <input aria-label={t("Organization")} maxLength={200} data-testid="event-org-input" value={org} onChange={(e) => setOrg(e.target.value)} placeholder={t("Organization")} className="h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm dark:text-slate-100" />
           <input aria-label={t("Listener PIN")} type="password" maxLength={64} data-testid="event-pin-input" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={t("PIN (optional)")} className="h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm dark:text-slate-100" />
+          <div className="sm:col-span-3 space-y-2" data-testid="extra-languages">
+            <p className="flex items-center gap-2 text-sm font-semibold"><Languages className="h-4 w-4 text-emerald-500" />{t("Listener languages")}</p>
+            <p className="text-xs text-slate-500">{t("Each listener picks a language. Main language")}: <b>{getTarget(targetLang).flag} {getTarget(targetLang).name}</b>. {t("Add up to 4 more.")}</p>
+            <div className="flex flex-wrap gap-2">
+              {TARGET_LANGUAGES.filter((l) => l.code !== targetLang).map((l) => {
+                const on = chosenExtras.includes(l.code);
+                return <button key={l.code} type="button" aria-pressed={on} data-testid={`extra-lang-${l.code}`} onClick={() => toggleExtra(l.code)} disabled={!on && chosenExtras.length >= MAX_EXTRA}
+                  className={`px-3 py-1.5 rounded-full border text-sm transition-colors disabled:opacity-40 ${on ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-slate-300 dark:border-slate-700 hover:border-slate-400"}`}>{l.flag} {t(l.name)}</button>;
+              })}
+            </div>
+            {chosenExtras.length > 0 && <p className="text-xs text-amber-700 dark:text-amber-300">{t("Each extra language runs its own translation session from the same microphone. OpenAI usage is multiplied by the number of languages.")} ({chosenExtras.length + 1}×)</p>}
+          </div>
           <button data-testid="create-event-button" onClick={doCreate} disabled={busy} className="sm:col-span-3 h-11 rounded-lg border border-emerald-500 text-emerald-600 dark:text-emerald-400 font-semibold hover:bg-emerald-500/10 disabled:opacity-50">{t("CREATE EVENT")}</button>
         </div>
       ) : (
@@ -73,7 +100,16 @@ export const BroadcastPanel = () => {
           {qr && <img data-testid="event-qr" src={qr} alt="QR" className="h-48 w-48 mx-auto rounded-lg bg-white p-2" />}
           <div className="min-w-0 space-y-2 scroll-mt-24" id="share">
             <h3 className="font-bold">3 · {t("Share and go live")}</h3>
-            <p className="font-semibold">{eventInfo.name} · {eventInfo.target.toUpperCase()}</p>
+            <p className="font-semibold">{eventInfo.name}</p>
+            <ul className="flex flex-wrap gap-2" data-testid="event-channels">
+              {eventLangs.map((lang, i) => {
+                const c = channelState(lang, i);
+                return <li key={lang} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm ${c.live ? "border-emerald-500 bg-emerald-500/10" : c.state === "error" ? "border-rose-500" : "border-slate-300 dark:border-slate-700"}`}>
+                  <span className={`h-2 w-2 rounded-full ${c.live ? "bg-emerald-500" : c.state === "starting" ? "bg-amber-400 animate-pulse" : c.state === "error" ? "bg-rose-500" : "bg-slate-400"}`} />
+                  {getTarget(lang).flag} {lang.toUpperCase()} <span className="font-mono text-xs text-slate-500">{c.listeners}</span>
+                </li>;
+              })}
+            </ul>
             <button onClick={newEvent} disabled={busy || active || broadcasting} className="text-sm underline disabled:opacity-40">{t("Choose another event / New event")}</button>
             <p className="text-sm font-semibold">{t("Scan to listen")}</p>
             <p className="text-sm text-slate-500">{t("On your phone: scan with the camera, open the link in Chrome, then tap LISTEN. Scanning alone does not start audio.")}</p>
@@ -94,6 +130,7 @@ export const BroadcastPanel = () => {
                 <button data-testid="stop-event-button" onClick={stopEvent} className="flex items-center gap-2 px-5 h-11 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold"><Square className="h-5 w-5 fill-white" />{t("STOP EVENT")}</button>
               )}
               <button data-testid="restart-broadcast-button" onClick={() => restartBroadcast().catch(e => setError(e.message))} disabled={!broadcasting} className="px-4 h-11 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 disabled:opacity-40 text-sm font-semibold">{t("RESTART BROADCAST")}</button>
+              <a data-testid="room-screen-link" href={screenUrl} target="_blank" rel="noreferrer" className="px-4 h-11 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 text-sm font-semibold flex items-center gap-2"><Monitor className="h-4 w-4" />{t("Room screen")}</a>
               <button data-testid="qr-fullscreen-button" onClick={() => setFs(true)} className="px-4 h-11 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 text-sm font-semibold flex items-center gap-2"><QrIcon className="h-4 w-4" /> QR</button>
             </div>
             <label className="flex items-center gap-2 pt-1 cursor-pointer" data-testid="listener-captions-toggle">

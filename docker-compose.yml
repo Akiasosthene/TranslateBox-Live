@@ -10,6 +10,8 @@ services:
       OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime-translate}
       OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
       TTS_RATE_LIMIT_MAX: ${TTS_RATE_LIMIT_MAX:-300}
+      OPENAI_SUMMARY_MODEL: ${OPENAI_SUMMARY_MODEL:-gpt-6-luna}
+      MAX_LANGUAGES_PER_EVENT: ${MAX_LANGUAGES_PER_EVENT:-5}
       CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS to the exact public origin}
       # Backend is accessible only on the private Compose network.
       FORWARDED_ALLOW_IPS: '*'

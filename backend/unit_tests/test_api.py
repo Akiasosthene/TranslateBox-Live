@@ -304,3 +304,80 @@ def test_unknown_audio_format_rejected(client):
         with pytest.raises(WebSocketDisconnect) as error:
             op.receive_json()
         assert error.value.code == 4400
+
+
+def _until(ws, predicate, limit=10):
+    for _ in range(limit):
+        message = ws.receive_json()
+        if predicate(message):
+            return message
+    raise AssertionError('expected message not received')
+
+
+def test_multilanguage_event_has_one_channel_per_language(client):
+    ev = event(client, target_language='fr', extra_languages=['es', 'FR', 'de'])
+    assert ev['targets'] == ['fr', 'es', 'de']
+    assert [c['lang'] for c in ev['channels']] == ['fr', 'es', 'de']
+    url = f"/api/ws/{ev['id']}"
+    with client.websocket_connect(url + '?role=operator&lang=es') as op_es, \
+         client.websocket_connect(url + '?role=operator&lang=fr') as op_fr:
+        op_es.send_json({'token': ev['operator_token'], 'format': 'pcm16'})
+        assert op_es.receive_json() == {'type': 'ready', 'lang': 'es'}
+        op_fr.send_json({'token': ev['operator_token'], 'format': 'pcm16'})
+        assert op_fr.receive_json()['lang'] == 'fr'
+        with client.websocket_connect(url + '?lang=es') as listener:
+            listener.send_json({})
+            assert listener.receive_json()['live'] is True
+            assert _until(op_es, lambda m: m.get('total') == 1) == {'type': 'listeners', 'count': 1, 'total': 1}
+            assert _until(op_fr, lambda m: m.get('total') == 1) == {'type': 'listeners', 'count': 0, 'total': 1}
+            op_fr.send_bytes(b'\x01\x00' * 640)
+            op_es.send_bytes(b'\x02\x00' * 640)
+            assert listener.receive_bytes() == b'\x02\x00' * 640
+        info = client.get(f"/api/events/{ev['id']}").json()
+        assert info['live'] is True and all(c['live'] for c in info['channels'] if c['lang'] in ('fr', 'es'))
+
+
+def test_unknown_language_channel_and_language_cap(client):
+    ev = event(client, target_language='en')
+    with client.websocket_connect(f"/api/ws/{ev['id']}?lang=ja") as ws:
+        with pytest.raises(WebSocketDisconnect) as error:
+            ws.receive_json()
+        assert error.value.code == 4404
+    response = client.post('/api/events', headers=AUTH, json={'target_language': 'en', 'extra_languages': ['fr', 'es', 'de', 'it', 'pt']})
+    assert response.status_code == 400
+
+
+def test_caption_only_screen_gets_text_but_no_audio(client):
+    ev = event(client)
+    url = f"/api/ws/{ev['id']}"
+    with client.websocket_connect(url + '?role=operator') as op:
+        op.send_json({'token': ev['operator_token'], 'format': 'pcm16'})
+        op.receive_json()
+        with client.websocket_connect(url + '?audio=0') as screen, client.websocket_connect(url) as phone:
+            screen.send_json({}); phone.send_json({})
+            screen.receive_json(); phone.receive_json()
+            op.send_bytes(b'\x00\x00' * 640)
+            op.send_json({'type': 'caption', 'text': 'Bonjour'})
+            assert phone.receive_bytes() == b'\x00\x00' * 640
+            assert phone.receive_json()['text'] == 'Bonjour'
+            assert screen.receive_json() == {'type': 'caption', 'text': 'Bonjour'}
+
+
+def test_summary_uses_responses_api_without_storage(client, monkeypatch):
+    seen = {}
+
+    def handler(request):
+        import json as _json
+        seen['url'] = str(request.url)
+        seen['body'] = _json.loads(request.read())
+        return httpx.Response(200, json={'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': '## Overview\nOK'}]}]})
+
+    _mock_speech(monkeypatch, handler)
+    transcript = 'Bienvenue à tous. ' * 4000
+    response = client.post('/api/summary', headers=AUTH, json={'text': transcript, 'language': 'fr', 'title': 'Talk'})
+    assert response.status_code == 200, response.text
+    assert response.json()['summary'] == '## Overview\nOK'
+    assert seen['url'] == server.OPENAI_RESPONSES_URL
+    assert seen['body']['store'] is False and seen['body']['model'] == server.SUMMARY_MODEL
+    assert 'French' in seen['body']['instructions']
+    assert client.post('/api/summary', json={'text': transcript}).status_code == 401

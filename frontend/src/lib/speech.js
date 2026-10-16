@@ -45,24 +45,28 @@ export const PREVIEW_TEXT = {
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// "wrong => right" (or "wrong = right") per line. Applied to studio-voice
-// speech and to listener captions. The realtime voice itself cannot be edited.
+// "wrong => right" (or "wrong = right") per line replaces a term;
+// "word =>" with nothing after it removes (blocks) the word. Applied to
+// studio-voice speech and listener captions; the realtime voice itself
+// cannot be edited.
 export function parseGlossary(text) {
   return (text || "").split("\n").map((line) => {
-    const m = line.match(/^\s*(.+?)\s*(?:=>|→|=)\s*(.+?)\s*$/);
-    if (!m) return null;
+    const m = line.match(/^\s*(.+?)\s*(=>|→|=)\s*(.*?)\s*$/);
+    if (!m || (!m[3] && m[2] === "=")) return null;
     const from = m[1];
     const edge = (c) => (/[\p{L}\p{N}]/u.test(c) ? "(?<![\\p{L}\\p{N}])" : "");
     const tail = (c) => (/[\p{L}\p{N}]/u.test(c) ? "(?![\\p{L}\\p{N}])" : "");
     try {
-      return { re: new RegExp(edge(from[0]) + escapeRe(from) + tail(from[from.length - 1]), "giu"), to: m[2] };
+      return { re: new RegExp(edge(from[0]) + escapeRe(from) + tail(from[from.length - 1]), "giu"), to: m[3] };
     } catch { return null; }
   }).filter(Boolean);
 }
 
 export function applyGlossary(text, rules) {
   if (!text || !rules?.length) return text;
-  return rules.reduce((acc, r) => acc.replace(r.re, r.to), text);
+  const out = rules.reduce((acc, r) => acc.replace(r.re, r.to), text);
+  // Removing a blocked word can leave doubled spaces or a space before punctuation.
+  return rules.some((r) => !r.to) ? out.replace(/[ \t]{2,}/g, " ").replace(/ ([,.;:!?])/g, "$1") : out;
 }
 
 // Split streaming translated text into speakable chunks.

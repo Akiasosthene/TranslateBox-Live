@@ -58,6 +58,14 @@ docker compose up -d --build
 - **Corrections** : une ligne `erreur => correction` corrige les sous-titres et la voix studio. Elle ne modifie pas la voix de traduction directe.
 - La page auditeur indique toujours que la voix est générée par IA, comme l’exigent les règles d’usage d’OpenAI.
 
+## Plusieurs langues, écran de salle, transcriptions
+
+- **Plusieurs langues par événement** : à la création, choisir jusqu’à 4 langues en plus de la langue principale. Chaque auditeur choisit la sienne sur la page d’écoute et peut en changer en direct. Chaque langue est une session de traduction distincte à partir du même micro : la consommation OpenAI est multipliée par le nombre de langues. La limite de 30 auditeurs s’applique à l’événement entier.
+- **Écran de salle** : `/e/<identifiant>/screen` affiche les sous-titres en très grand avec le QR code, pour un projecteur ou une télé. Il ne reçoit pas d’audio. Les sous-titres doivent être activés pour les auditeurs.
+- **Transcriptions** : par langue, en TXT, SRT ou VTT (sous-titres vidéo), avec les corrections du glossaire appliquées. Elles restent dans l’onglet ; « Save transcripts » les conserve après l’arrêt.
+- **Résumé IA** : `/api/summary` envoie la transcription au modèle `OPENAI_SUMMARY_MODEL` (Responses API, `store: false`) et renvoie un résumé en Markdown. Rien n’est conservé sur le serveur.
+- **Glossaire** : `erreur => correction` remplace ; `mot =>` (rien à droite) masque le mot.
+
 ## Sécurité et confidentialité
 
 Les routes de création de session, d’événement et de statistiques exigent `Authorization: Bearer <OPERATOR_TOKEN>`. Le code opérateur reste en mémoire dans l’onglet et n’est pas intégré au build. Chaque événement possède un jeton de publication distinct, envoyé dans le premier message WebSocket, jamais dans le QR code ou l’URL. Le PIN est également envoyé dans le premier message.

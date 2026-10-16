@@ -47,6 +47,8 @@ export default function Listener() {
   const pausedRef = useRef(false);
   const wakeRef = useRef(null);
   const captionRef = useRef(null);
+  const [lang, setLang] = useState(null);
+  const langRef = useRef(null);
 
   const closeSocket = useCallback(() => {
     clearTimeout(retryRef.current);
@@ -79,7 +81,15 @@ export default function Listener() {
     setInfo(null); setErr("");
     fetch(`${API}/events/${id}`, { signal: controller.signal })
       .then(r => r.ok ? r.json() : Promise.reject(new Error("Event not found.")))
-      .then(d => { setInfo(d); setNeedPin(d.pin_protected); setLive(d.live); })
+      .then(d => {
+        setInfo(d); setNeedPin(d.pin_protected); setLive(d.live);
+        const targets = d.targets || [d.target];
+        let saved = null;
+        try { saved = localStorage.getItem('tbl-listen-lang'); } catch { /* optional */ }
+        const browser = (navigator.language || "").slice(0, 2).toLowerCase();
+        const pick = [saved, browser].find((c) => c && targets.includes(c)) || targets[0];
+        langRef.current = pick; setLang(pick);
+      })
       .catch(e => { if (e.name !== "AbortError") setErr(e.message); });
     return () => { controller.abort(); wantedRef.current = false; closeSocket(); releaseAudio(); };
   }, [id, closeSocket, releaseAudio]);
@@ -105,7 +115,8 @@ export default function Listener() {
     if (!wantedRef.current) return;
     setConn("connecting");
     if (!pausedRef.current) setPlayback("buffering");
-    const ws = new WebSocket(`${WS_BASE}/api/ws/${id}?role=listener`);
+    const chosen = langRef.current ? `&lang=${encodeURIComponent(langRef.current)}` : "";
+    const ws = new WebSocket(`${WS_BASE}/api/ws/${id}?role=listener${chosen}`);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
     ws.onopen = () => { ws.send(JSON.stringify({ type: "auth", pin: pin || null })); };
@@ -186,6 +197,14 @@ export default function Listener() {
     connect();
   };
 
+  const chooseLang = (code) => {
+    if (code === langRef.current) return;
+    langRef.current = code; setLang(code);
+    try { localStorage.setItem('tbl-listen-lang', code); } catch { /* optional */ }
+    setCaption("");
+    if (wantedRef.current) { playerRef.current?.clear(); attemptRef.current = 0; connect(); }
+  };
+
   const togglePlay = (force) => {
     const next = typeof force === "boolean" ? force : !pausedRef.current;
     pausedRef.current = next;
@@ -204,7 +223,18 @@ export default function Listener() {
     return <Shell><p className="text-rose-400 font-mono">{t(err)}</p></Shell>;
   }
 
-  const target = getTarget(info?.target || "en");
+  const target = getTarget(lang || info?.target || "en");
+  const targets = info?.targets || (info?.target ? [info.target] : []);
+  const picker = targets.length > 1 && (
+    <div role="radiogroup" aria-label={t("Choose your language")} className="flex flex-wrap justify-center gap-2" data-testid="listener-languages">
+      {targets.map((code) => {
+        const l = getTarget(code); const on = code === lang;
+        return <button key={code} role="radio" aria-checked={on} data-testid={`listener-lang-${code}`} onClick={() => chooseLang(code)}
+          className={`inline-flex items-center gap-2 rounded-full border px-4 h-11 text-sm font-semibold transition-colors ${on ? "border-emerald-400 bg-emerald-500/15 text-emerald-200" : "border-white/15 text-slate-300 hover:border-white/30"}`}>
+          <span className="text-lg leading-none">{l.flag}</span>{l.native}</button>;
+      })}
+    </div>
+  );
   const statusText = t(!listening ? (live ? "Ready to listen" : "Waiting for speaker…")
     : conn === "disconnected" ? "Reconnecting…"
     : paused ? "Audio paused"
@@ -220,10 +250,17 @@ export default function Listener() {
           <p className="text-[11px] font-mono uppercase tracking-[0.35em] text-emerald-400/90">TranslateBox · {t("Live")}</p>
           <h1 className="mt-4 text-[28px] leading-tight font-extrabold text-slate-50 text-balance">{info?.name || t("Live Interpretation")}</h1>
           {info?.organization && <p className="text-slate-400 mt-1">{info.organization}</p>}
-          <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5">
-            <span className="text-xl leading-none">{target.flag}</span>
-            <span className="text-sm font-semibold tracking-wide text-slate-200">{target.native}</span>
-          </div>
+          {targets.length > 1 ? (
+            <div className="mt-5 space-y-2">
+              <p className="text-xs uppercase tracking-widest text-slate-400">{t("Choose your language")}</p>
+              {picker}
+            </div>
+          ) : (
+            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5">
+              <span className="text-xl leading-none">{target.flag}</span>
+              <span className="text-sm font-semibold tracking-wide text-slate-200">{target.native}</span>
+            </div>
+          )}
         </header>
 
         <div className="mt-8 flex items-center justify-center gap-2" data-testid="listener-status" role="status" aria-live="polite">
