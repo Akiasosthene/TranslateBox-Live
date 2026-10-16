@@ -16,6 +16,7 @@ export const BroadcastPanel = () => {
   } = useTranslationSession();
   const [logo, setLogo] = useState("");
   const [sponsor, setSponsor] = useState("");
+  const [archive, setArchive] = useState(false);
   const [usage, setUsage] = useState(null);
   useEffect(() => { fetchUsage().then(setUsage).catch(() => setUsage(null)); }, [fetchUsage, broadcasting]);
   const toggleHuman = (code) => setHumanLangs((cur) => (cur || []).includes(code) ? cur.filter((l) => l !== code) : [...(cur || []), code]);
@@ -49,8 +50,8 @@ export const BroadcastPanel = () => {
     if (listenUrl) QRCode.toDataURL(listenUrl, { width: 512, margin: 4 }).then(setQr).catch(() => {});
   }, [listenUrl]);
 
-  const doCreate = async () => { setBusy(true); setError(""); try { await createEvent({ name, organization: org, pin, logo, sponsor }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
-  const doStart = async () => { setBusy(true); setError(""); try { await startEvent({ name, organization: org, pin, logo, sponsor }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const doCreate = async () => { setBusy(true); setError(""); try { await createEvent({ name, organization: org, pin, logo, sponsor, archive }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const doStart = async () => { setBusy(true); setError(""); try { await startEvent({ name, organization: org, pin, logo, sponsor, archive }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
 
   return (
     <section className="rounded-2xl bg-white/80 dark:bg-[#121824]/70 backdrop-blur-xl border border-slate-200/70 dark:border-white/10 shadow-lg p-4 md:p-5 space-y-4" data-testid="broadcast-panel">
@@ -123,6 +124,10 @@ export const BroadcastPanel = () => {
             </label>
             <input aria-label={t("Sponsor or thank-you line")} maxLength={160} value={sponsor} onChange={(e) => setSponsor(e.target.value)} placeholder={t("Sponsor or thank-you line (optional)")} className="h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm dark:text-slate-100" />
           </div>
+          <label className="sm:col-span-3 flex items-start gap-2 text-sm cursor-pointer" data-testid="archive-toggle">
+            <input type="checkbox" checked={archive} onChange={(e) => setArchive(e.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" />
+            <span>{t("Keep transcripts on the server")} <span className="block text-xs text-slate-500">{t("Download or translate them later from the portal. Deleted with the event.")}</span></span>
+          </label>
           <button data-testid="create-event-button" onClick={doCreate} disabled={busy} className="sm:col-span-3 h-11 rounded-lg border border-emerald-500 text-emerald-600 dark:text-emerald-400 font-semibold hover:bg-emerald-500/10 disabled:opacity-50">{t("CREATE EVENT")}</button>
         </div>
       ) : (
@@ -131,6 +136,10 @@ export const BroadcastPanel = () => {
           <div className="min-w-0 space-y-2 scroll-mt-24" id="share">
             <h3 className="font-bold">3 · {t("Share and go live")}</h3>
             <p className="font-semibold">{eventInfo.name}</p>
+            {eventInfo.code && (
+              <p className="text-sm" data-testid="session-code">{t("Session code")}: <b className="font-mono text-lg tracking-[0.2em]">{eventInfo.code}</b>
+                <span className="text-slate-500"> · {window.location.host}/join</span></p>
+            )}
             <ul className="flex flex-wrap gap-2" data-testid="event-channels">
               {eventLangs.map((lang, i) => {
                 const c = channelState(lang, i);

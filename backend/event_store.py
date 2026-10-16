@@ -49,4 +49,5 @@ class KVStore:
 
     def delete_prefix(self, prefix):
         with self.connection:
-            self.connection.execute('DELETE FROM kv WHERE key LIKE ?', (prefix.replace('%', '') + '%',))
+            # Exact prefix match (LIKE would treat '_' in ids as a wildcard).
+            self.connection.execute('DELETE FROM kv WHERE substr(key, 1, ?) = ?', (len(prefix), prefix))

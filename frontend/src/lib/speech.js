@@ -45,28 +45,111 @@ export const PREVIEW_TEXT = {
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// "wrong => right" (or "wrong = right") per line replaces a term;
-// "word =>" with nothing after it removes (blocks) the word. Applied to
-// studio-voice speech and listener captions; the realtime voice itself
-// cannot be edited.
-export function parseGlossary(text) {
-  return (text || "").split("\n").map((line) => {
-    const m = line.match(/^\s*(.+?)\s*(=>|→|=)\s*(.*?)\s*$/);
-    if (!m || (!m[3] && m[2] === "=")) return null;
-    const from = m[1];
-    const edge = (c) => (/[\p{L}\p{N}]/u.test(c) ? "(?<![\\p{L}\\p{N}])" : "");
-    const tail = (c) => (/[\p{L}\p{N}]/u.test(c) ? "(?![\\p{L}\\p{N}])" : "");
-    try {
-      return { re: new RegExp(edge(from[0]) + escapeRe(from) + tail(from[from.length - 1]), "giu"), to: m[3] };
-    } catch { return null; }
-  }).filter(Boolean);
+// Glossary (Wordly-compatible syntax, plus ours). One rule per line:
+//   [fr]                  section: following rules apply to French only ([*] = all)
+//   wrong -> right        replace (also =>, → or =)
+//   word ->               block: remove the word
+//   Term <sound, alike>   "sounds like": these spellings become Term
+//   Term !!               preferred term (sent to the model as vocabulary)
+// Applied to captions, the room screen, transcripts and the studio voice.
+// The realtime voice itself cannot be edited.
+const WORDY = /^[\p{L}\p{N}].*[\p{L}\p{N}]$|^[\p{L}\p{N}]$/u;
+
+const TOKEN = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu;
+const phraseKey = (str) => (str.match(TOKEN) || []).join(" ").toLowerCase();
+
+// Word-based terms use a phrase lookup (fast with thousands of terms);
+// terms with symbols (C++, R&D…) use one combined regular expression.
+function compileEntries(entries) {
+  const phrases = new Map();
+  const other = new Map();
+  let maxWords = 1;
+  for (const e of entries) {
+    if (WORDY.test(e.from) && phraseKey(e.from)) {
+      const key = phraseKey(e.from);
+      phrases.set(key, e.to);
+      maxWords = Math.max(maxWords, key.split(" ").length);
+    } else other.set(e.from.toLowerCase(), e.to);
+  }
+  const otherRe = other.size ? new RegExp(`(?:${[...other.keys()].sort((a, b) => b.length - a.length).map(escapeRe).join("|")})`, "giu") : null;
+  return { phrases, maxWords, other, otherRe };
 }
 
-export function applyGlossary(text, rules) {
-  if (!text || !rules?.length) return text;
-  const out = rules.reduce((acc, r) => acc.replace(r.re, r.to), text);
-  // Removing a blocked word can leave doubled spaces or a space before punctuation.
-  return rules.some((r) => !r.to) ? out.replace(/[ \t]{2,}/g, " ").replace(/ ([,.;:!?])/g, "$1") : out;
+function applyCompiled(text, c) {
+  let out = text;
+  if (c.phrases.size) {
+    const tokens = [...out.matchAll(TOKEN)].map((m) => ({ s: m.index, e: m.index + m[0].length, w: m[0].toLowerCase() }));
+    const parts = [];
+    let cursor = 0;
+    for (let i = 0; i < tokens.length; i++) {
+      let hit = null;
+      for (let n = Math.min(c.maxWords, tokens.length - i); n >= 1 && !hit; n--) {
+        const last = tokens[i + n - 1];
+        let ok = true;
+        for (let k = i; k < i + n - 1; k++) if (!/^\s+$/.test(out.slice(tokens[k].e, tokens[k + 1].s))) { ok = false; break; }
+        if (!ok) continue;
+        const key = n === 1 ? tokens[i].w : tokens.slice(i, i + n).map((t) => t.w).join(" ");
+        if (c.phrases.has(key)) hit = { n, end: last.e, to: c.phrases.get(key) };
+      }
+      if (hit) {
+        parts.push(out.slice(cursor, tokens[i].s), hit.to);
+        cursor = hit.end;
+        i += hit.n - 1;
+      }
+    }
+    parts.push(out.slice(cursor));
+    out = parts.join("");
+  }
+  if (c.otherRe) out = out.replace(c.otherRe, (m) => c.other.get(m.toLowerCase()) ?? m);
+  return out;
+}
+
+function makeGlossary(entries, boost) {
+  const cache = new Map();
+  const hasBlock = entries.some((e) => !e.to);
+  return {
+    entries, boost, length: entries.length,
+    apply(text, lang = "*") {
+      if (!text || !entries.length) return text;
+      const key = lang || "*";
+      if (!cache.has(key)) cache.set(key, compileEntries(entries.filter((e) => e.lang === "*" || e.lang === key)));
+      const out = applyCompiled(text, cache.get(key));
+      return hasBlock ? out.replace(/[ \t]{2,}/g, " ").replace(/ ([,.;:!?])/g, "$1") : out;
+    },
+  };
+}
+
+export function parseGlossary(text) {
+  const entries = [];
+  const boost = [];
+  let section = "*";
+  for (const raw of (text || "").split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const sec = line.match(/^\[([a-z]{2,3}|\*)\]$/i);
+    if (sec) { section = sec[1].toLowerCase(); continue; }
+    const sounds = line.match(/^(.+?)\s*<([^>]+)>\s*!*$/);
+    if (sounds) {
+      const term = sounds[1].trim();
+      for (const alias of sounds[2].split(",").map((a) => a.trim()).filter(Boolean)) entries.push({ from: alias, to: term, lang: section });
+      boost.push(term);
+      continue;
+    }
+    const rule = line.match(/^(.+?)\s*(->|=>|→|=)\s*(.*?)$/);
+    if (rule) {
+      if (!rule[3] && rule[2] === "=") continue;
+      entries.push({ from: rule[1].trim(), to: rule[3], lang: section });
+      continue;
+    }
+    boost.push(line.replace(/\s*!+$/, ""));
+  }
+  return makeGlossary(entries, boost.slice(0, 3000));
+}
+
+export function applyGlossary(text, rules, lang = "*") {
+  if (!text || !rules) return text;
+  if (typeof rules.apply === "function") return rules.apply(text, lang);
+  return text;
 }
 
 // Split streaming translated text into speakable chunks.
@@ -125,7 +208,8 @@ export class SpeechPipeline {
     Object.assign(this, { apiBase, onAudio, onLog: onLog || (() => {}), onError: onError || (() => {}), onSpoken: onSpoken || (() => {}) });
     this.voice = "marin";
     this.style = VOICE_STYLES.interpreter.text;
-    this.rules = [];
+    this.rules = null;
+    this.lang = "*";
     this.enabled = false;
     this.buffer = "";
     this.chain = Promise.resolve();
@@ -133,7 +217,8 @@ export class SpeechPipeline {
     this.failures = 0;
   }
 
-  configure({ voice, style, glossary, enabled }) {
+  configure({ voice, style, glossary, enabled, lang }) {
+    if (lang) this.lang = lang;
     if (voice) this.voice = voice;
     if (style !== undefined) this.style = style;
     if (glossary !== undefined) this.rules = parseGlossary(glossary);
@@ -169,7 +254,7 @@ export class SpeechPipeline {
   }
 
   _speak(raw) {
-    const text = applyGlossary(raw, this.rules).slice(0, 1200);
+    const text = applyGlossary(raw, this.rules, this.lang).slice(0, 1200);
     if (!/[\p{L}\p{N}]/u.test(text)) return;
     const { signal } = this.controller;
     const started = performance.now();

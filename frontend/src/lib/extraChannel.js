@@ -17,7 +17,9 @@ export class ExtraChannel {
     this.listeners = 0;
     this.text = "";
     this.captions = false;
-    this.rules = [];
+    this.rules = null;
+    this.speaker = "";
+    this.labelled = "";
     this.recorder = new SegmentRecorder();
     this.speech = new SpeechPipeline({
       apiBase,
@@ -32,14 +34,16 @@ export class ExtraChannel {
           if (segmentBreak) {
             this.speech.endSegment();
             this.recorder.end();
-            if (this.segmentText.trim()) this.onSegment(this.lang, applyGlossary(this.segmentText.trim(), this.rules));
+            if (this.segmentText.trim()) this.onSegment(this.lang, applyGlossary(this.segmentText.trim(), this.rules, this.lang));
             this.segmentText = "";
             if (this.text && !this.text.endsWith("\n\n")) this.text += "\n\n";
           } else {
             this.speech.feed(delta);
-            this.recorder.delta(delta);
+            this.recorder.delta(delta, this.speaker || null);
+            let shown = delta || "";
+            if (shown && !this.segmentText && this.speaker && this.labelled !== this.speaker) { this.labelled = this.speaker; shown = `${this.speaker}: ${shown}`; }
             this.segmentText += delta || "";
-            this.text = (this.text + (delta || "")).slice(-20000);
+            this.text = (this.text + shown).slice(-20000);
           }
           this._sendCaption();
           this._emit();
@@ -59,7 +63,7 @@ export class ExtraChannel {
 
   configure({ voiceMode, voice, voiceLabel, style, glossary, captions }) {
     this.engine.program.setVoiceMode(voiceMode);
-    this.speech.configure({ enabled: voiceMode === "studio", voice, style, glossary });
+    this.speech.configure({ enabled: voiceMode === "studio", voice, style, glossary, lang: this.lang });
     this.rules = parseGlossary(glossary);
     this.meta = voiceMode === "studio" ? { mode: "studio", voice: voiceLabel || voice } : { mode: "original", voice: null };
     this.broadcaster?.sendMeta(this.meta);
@@ -67,12 +71,13 @@ export class ExtraChannel {
   }
 
   _sendCaption() {
-    this.broadcaster?.sendCaption(this.captions ? applyGlossary(this.text, this.rules) : "");
+    this.broadcaster?.sendCaption(this.captions ? applyGlossary(this.text, this.rules, this.lang) : "");
   }
 
   async start({ event, deviceId, instructions, ambient }) {
     this._set("starting");
     this.text = "";
+    this.labelled = "";
     this.recorder.reset();
     await this.engine.start({ deviceId, targetLanguage: this.lang, instructions, ambient });
     if (!this.engine.active) throw new Error("cancelled");
@@ -88,6 +93,8 @@ export class ExtraChannel {
     this._sendCaption();
     if (this.state === "starting") this._set(this.engine.pc ? "live" : "starting");
   }
+
+  setSpeaker(name) { this.speaker = name || ""; }
 
   setInputMuted(muted) { this.engine.setInputMuted(muted); }
 

@@ -93,10 +93,20 @@ export const VoiceCard = () => {
       )}
 
       <div className="pt-3 border-t border-slate-100 dark:border-slate-800/60">
-        <p className={label}>{t("Corrections")}</p>
+        <p className={label}>{t("Glossary & corrections")}</p>
         <p className="text-xs text-slate-500 mt-1">{t("One per line: wrong => right. Leave the right side empty to hide a word. Applied to listener captions, the room screen, transcripts and the studio voice.")}</p>
-        <textarea data-testid="glossary-input" value={glossary} onChange={(e) => setGlossary(e.target.value.slice(0, 4000))} rows={3}
-          placeholder={"Breach Mender => Breach Mender House\nMonkton => Moncton"} className={`${input} py-2 font-mono`} />
+        <details className="text-xs text-slate-500 mt-1">
+          <summary className="cursor-pointer">{t("Advanced syntax")}</summary>
+          <ul className="mt-1 space-y-0.5 font-mono">
+            <li>[fr] … — {t("rules below apply only to French (use [*] for all languages)")}</li>
+            <li>Moncton {"<"}Monkton, Monckton{">"} — {t("sounds-like spellings replaced by the term")}</li>
+            <li>Sola Scriptura !! — {t("preferred term: sent to the AI interpreter")}</li>
+            <li># … — {t("comment")}</li>
+          </ul>
+        </details>
+        <textarea data-testid="glossary-input" value={glossary} onChange={(e) => setGlossary(e.target.value.slice(0, 200000))} rows={4}
+          placeholder={"Breach Mender => Breach Mender House\nMoncton <Monkton, Monckton>\n[fr]\nSaint-Esprit !!"} className={`${input} py-2 font-mono`} />
+        <p className="text-[11px] text-slate-500">{(glossary.match(/\n/g) || []).length + (glossary ? 1 : 0)} {t("lines")} · {t("up to about 3000 terms")}</p>
         <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2" data-testid="glossary-library">
           <p className="flex items-center gap-2 text-xs font-semibold text-slate-500"><Library className="h-3.5 w-3.5" />{t("Shared glossaries (all operators)")}</p>
           <div className="flex flex-wrap gap-2">

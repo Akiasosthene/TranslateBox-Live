@@ -4,14 +4,15 @@ import { FileText, Sparkles, Loader2, Copy, Download, Captions, AudioLines, Send
 import { Markdownish } from "../Markdownish";
 import { TARGET_LANGUAGES } from "../../lib/languages";
 import { useTranslationSession } from "../../context/TranslationContext";
-import { toSRT, toVTT, downloadText } from "../../lib/transcript";
+import { toSRT, toVTT, toTimedText, withSpeakers, downloadText } from "../../lib/transcript";
 import { applyGlossary, parseGlossary } from "../../lib/speech";
 
 // After (or during) a session: download each language's transcript as text or
 // subtitles, and create an AI summary of the key takeaways.
 export const TranscriptCard = () => {
   const { t } = useLocale();
-  const { transcripts, summarize, active, broadcasting, saveTranscripts, glossary, profile, eventInfo, targetText, sourceText, targetLang, publishSummary, unpublishSummary, dub, studioVoice } = useTranslationSession();
+  const { transcripts, summarize, active, broadcasting, saveTranscripts, glossary, profile, eventInfo, targetText, sourceText, targetLang, publishSummary, unpublishSummary, dub, studioVoice, archiveNow, archiveState } = useTranslationSession();
+  const [offset, setOffset] = useState(0);
   const [summaryLang, setSummaryLang] = useState("");
   const [dubbing, setDubbing] = useState(null); // {key, progress, controller}
   const [busy, setBusy] = useState("");
@@ -24,13 +25,14 @@ export const TranscriptCard = () => {
   const rows = transcripts().filter((r) => !r.recorder.empty);
   const base = (profile.eventName || eventInfo?.name || "translatebox").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").toLowerCase() || "translatebox";
 
-  const fixed = (segments) => segments.map((s) => ({ ...s, text: applyGlossary(s.text, rules) }));
+  const fixed = (segments, lang) => segments.map((s) => ({ ...s, text: applyGlossary(s.text, rules, lang) }));
   const save = (row, kind) => {
-    const segments = fixed(row.recorder.all());
+    const segments = fixed(row.recorder.all(), row.lang);
     const name = `${base}-${row.lang}`;
-    if (kind === "srt") downloadText(`${name}.srt`, toSRT(segments), "application/x-subrip");
-    else if (kind === "vtt") downloadText(`${name}.vtt`, toVTT(segments), "text/vtt");
-    else downloadText(`${name}.txt`, segments.map((s) => s.text).join("\n\n"));
+    if (kind === "srt") downloadText(`${name}.srt`, toSRT(withSpeakers(segments)), "application/x-subrip");
+    else if (kind === "vtt") downloadText(`${name}.vtt`, toVTT(withSpeakers(segments)), "text/vtt");
+    else if (kind === "timed") downloadText(`${name}-timed.txt`, toTimedText(segments, { offsetMs: offset * 1000 }));
+    else downloadText(`${name}.txt`, withSpeakers(segments).map((s) => s.text).join("\n\n"));
   };
 
   const makeSummary = async (row) => {
@@ -47,7 +49,7 @@ export const TranscriptCard = () => {
     const controller = new AbortController();
     setDubbing({ key: row.key, progress: 0, controller }); setError("");
     try {
-      const blob = await dub(row.recorder.all(), { signal: controller.signal, onProgress: (p) => setDubbing((d) => d && { ...d, progress: p }) });
+      const blob = await dub(row.recorder.all(), { lang: row.lang, signal: controller.signal, onProgress: (p) => setDubbing((d) => d && { ...d, progress: p }) });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = `${base}-${row.lang}-voice-${studioVoice}.wav`; a.click();
@@ -76,6 +78,7 @@ export const TranscriptCard = () => {
               <span className="font-semibold text-sm min-w-[7rem]">{t(row.label)}</span>
               <span className="text-xs font-mono text-slate-500 mr-auto">{row.recorder.all().length} {t("segments")}</span>
               <button onClick={() => save(row, "txt")} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800">TXT</button>
+              <button onClick={() => save(row, "timed")} title={t("Text with [hh:mm:ss] timestamps")} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800">TXT ⏱</button>
               <button onClick={() => save(row, "srt")} title={t("Subtitles for video")} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1"><Captions className="h-3.5 w-3.5" />SRT</button>
               <button onClick={() => save(row, "vtt")} title={t("Subtitles for video")} className="h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800">VTT</button>
               {row.key !== "source" && (
@@ -99,6 +102,21 @@ export const TranscriptCard = () => {
             {TARGET_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.flag} {t(l.name)}</option>)}
           </select>
         </label>
+      )}
+      {rows.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          <label className="flex items-center gap-2">{t("Timestamp offset (s)")}
+            <input type="number" step="1" value={offset} onChange={(e) => setOffset(Number(e.target.value) || 0)} data-testid="timestamp-offset" className="w-20 h-8 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-2" />
+          </label>
+          {eventInfo?.archive && (
+            <span className="flex items-center gap-2">
+              <button onClick={() => archiveNow()} data-testid="archive-now" className="h-8 px-3 rounded-lg border border-slate-300 dark:border-slate-700 font-semibold">{t("Save to server now")}</button>
+              {archiveState.error ? <span className="text-rose-500">{t(archiveState.error)}</span>
+                : archiveState.at ? <span>{t("Archived at")} {new Date(archiveState.at).toLocaleTimeString()}</span>
+                : <span>{t("Archived automatically every minute while broadcasting.")}</span>}
+            </span>
+          )}
+        </div>
       )}
       {(active || broadcasting) && rows.length > 0 && <p className="text-xs text-slate-500">{t("A summary made during the session covers what has been said so far.")}</p>}
       {error && <p role="alert" className="text-sm text-rose-500">{error}</p>}

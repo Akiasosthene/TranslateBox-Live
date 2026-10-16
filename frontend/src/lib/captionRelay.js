@@ -6,6 +6,7 @@ import { operatorFetch } from "./api";
 export const RELAY_PROVIDERS = {
   zoom: { label: "Zoom", hint: "Zoom → Captions → Set up manual captioner → Copy API token" },
   teams: { label: "Microsoft Teams", hint: "Meeting options → Provide CART captions → Copy link" },
+  webhook: { label: "Webhook (HTTPS)", hint: "Your HTTPS endpoint receives JSON {type, text, lang, seq, sent_at} for each caption line" },
 };
 
 const LOCALES = { en: "en-US", fr: "fr-FR", es: "es-ES", pt: "pt-BR", de: "de-DE", it: "it-IT", ru: "ru-RU", zh: "zh-CN", ja: "ja-JP", ko: "ko-KR", hi: "hi-IN", id: "id-ID", vi: "vi-VN" };
@@ -61,7 +62,7 @@ export class CaptionRelay {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) d.error = body.detail || `Error ${res.status}`;
-      else if (!body.ok) d.error = body.status === 404 ? "Meeting not started or captions not enabled." : body.status === 401 ? "Link expired: copy a new one." : `${RELAY_PROVIDERS[d.provider].label} answered ${body.status}.`;
+      else if (!body.ok) d.error = body.status === 404 ? "Meeting not started or captions not enabled." : body.status === 401 ? "Link expired: copy a new one." : `${RELAY_PROVIDERS[d.provider]?.label || d.provider} answered ${body.status}.`;
       else { d.error = ""; d.sent += 1; }
     } catch { d.error = "Network error."; }
     this._emit();

@@ -11,6 +11,9 @@ import time
 import logging
 import hashlib
 import base64
+import socket
+import ipaddress
+import string
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
@@ -44,7 +47,7 @@ TTS_RATE_MAX = int(os.environ.get("TTS_RATE_LIMIT_MAX", "300"))
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 SUMMARY_MODEL = os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-6-luna")
 SUMMARY_MAX_BODY = int(os.environ.get("SUMMARY_MAX_BODY_BYTES", "600000"))
-LARGE_BODY_BYTES = int(os.environ.get("LARGE_BODY_BYTES", "400000"))
+LARGE_BODY_BYTES = int(os.environ.get("LARGE_BODY_BYTES", "2500000"))
 USAGE_CAP_MINUTES = float(os.environ.get("USAGE_CAP_MINUTES", "0"))  # 0 = no monthly cap
 LANGUAGE_NAMES = {
     "en": "English", "es": "Spanish", "pt": "Portuguese", "fr": "French", "ja": "Japanese",
@@ -137,6 +140,10 @@ def require_operator(request: Request):
         return
     if _sso_session(supplied):
         return
+    if supplied.startswith("Bearer tbk_"):
+        digest = hashlib.sha256(supplied[7:].encode()).hexdigest()
+        if any(secrets.compare_digest(digest, key["hash"]) for key in STORE.get("apikeys", []) or []):
+            return
     raise HTTPException(401, "Operator access required.")
 
 api_router = APIRouter(prefix="/api")
@@ -664,6 +671,44 @@ class EventCreate(BaseModel):
     captions: bool = False
     logo: str | None = Field(default=None, max_length=300000)
     sponsor: str = Field(default="", max_length=160)
+    start_at: str | None = Field(default=None, max_length=40)
+    duration_minutes: int = Field(default=0, ge=0, le=1440)
+    labels: list[str] = Field(default_factory=list, max_length=10)
+    pinned: bool = False
+    archive_transcripts: bool = False
+
+
+def _clean_labels(labels):
+    return [l.strip()[:40] for l in labels if isinstance(l, str) and l.strip()][:10]
+
+
+def _check_start(start_at):
+    if not start_at:
+        return None
+    try:
+        return datetime.fromisoformat(start_at.replace("Z", "+00:00")).isoformat()
+    except ValueError:
+        raise HTTPException(400, "Invalid start date and time.")
+
+
+def _new_code() -> str:
+    """Short session code typed by attendees: 4 letters + 4 digits (e.g. QFTR4821)."""
+    used = {ev.get("code") for ev in EVENTS.values()}
+    letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"  # no I/O, easy to read aloud
+    while True:
+        code = "".join(secrets.choice(letters) for _ in range(4)) + "".join(secrets.choice(string.digits) for _ in range(4))
+        if code not in used:
+            return code
+
+
+def _event_end_ts(ev) -> float:
+    end = ev["created"]
+    if ev.get("start_at"):
+        try:
+            end = max(end, datetime.fromisoformat(ev["start_at"]).timestamp() + 60 * (ev.get("duration_minutes") or 0))
+        except ValueError:
+            pass
+    return end
 
 
 def _check_logo(logo):
@@ -687,10 +732,16 @@ def _prune_events():
     for eid, event in list(EVENTS.items()):
         rooms = _event_rooms(eid)
         busy = any(r["operator"] or r["listeners"] for r in rooms)
-        if time.time() - event["created"] > EVENT_TTL and not busy:
-            EVENTS.pop(eid, None)
-            for key in [k for k in ROOMS if k.startswith(eid + ":")]:
-                ROOMS.pop(key, None)
+        if time.time() - _event_end_ts(event) > EVENT_TTL and not busy and not event.get("pinned"):
+            _drop_event(eid)
+
+
+def _drop_event(eid):
+    EVENTS.pop(eid, None)
+    for key in [k for k in ROOMS if k.startswith(eid + ":")]:
+        ROOMS.pop(key, None)
+    STORE.delete_prefix(f"tx:{eid}:")
+    STORE.delete_prefix(f"txindex:{eid}")
 
 
 @api_router.post("/events", dependencies=[Depends(require_operator)])
@@ -706,6 +757,13 @@ async def create_event(body: EventCreate):
     token = secrets.token_urlsafe(32)
     interpreter_code = secrets.token_urlsafe(9)
     EVENTS[eid] = {
+        "code": _new_code(),
+        "start_at": _check_start(body.start_at),
+        "duration_minutes": body.duration_minutes,
+        "labels": _clean_labels(body.labels),
+        "pinned": body.pinned,
+        "archive": body.archive_transcripts,
+        "peak_listeners": 0,
         "name": body.name or "Live Interpretation",
         "organization": body.organization or "",
         "target": target,
@@ -734,7 +792,12 @@ def _public_event(eid):
     for lang in _targets(eid):
         room = ROOMS.get(f"{eid}:{lang}", {})
         channels.append({"lang": lang, "live": bool(room.get("operator")), "listeners": len(room.get("listeners", ()))})
+    if not ev.get("code"):
+        ev = {**ev, "code": _new_code()}
+        EVENTS[eid] = ev
     return {
+        "code": ev["code"], "start_at": ev.get("start_at"), "duration_minutes": ev.get("duration_minutes", 0),
+        "labels": list(ev.get("labels") or []), "pinned": bool(ev.get("pinned")), "archive": bool(ev.get("archive")),
         "name": ev["name"], "organization": ev["organization"], "target": ev["target"],
         "targets": _targets(eid), "channels": channels, "human": list(ev.get("human") or []),
         "logo": ev.get("logo"), "sponsor": ev.get("sponsor", ""), "summaries": dict(ev.get("summaries") or {}),
@@ -742,14 +805,257 @@ def _public_event(eid):
         "live": any(c["live"] for c in channels), "listeners": sum(c["listeners"] for c in channels),
         "max_listeners": MAX_LISTENERS,
         "created": ev["created"],
-        "expires_at": ev["created"] + EVENT_TTL,
+        "expires_at": None if ev.get("pinned") else _event_end_ts(ev) + EVENT_TTL,
     }
 
 
 @api_router.get("/events", dependencies=[Depends(require_operator)])
 async def list_events():
     _prune_events()
-    return {"events": [{"id": eid, **_public_event(eid), "usage": EVENTS[eid].get("usage") or {}} for eid in sorted(EVENTS, key=lambda eid: EVENTS[eid]["created"], reverse=True)]}
+    return {"events": [{"id": eid, **_public_event(eid), "usage": EVENTS[eid].get("usage") or {},
+                        "archive": bool(EVENTS[eid].get("archive")), "peak_listeners": EVENTS[eid].get("peak_listeners", 0),
+                        "transcripts": _transcript_index(eid)}
+                       for eid in sorted(EVENTS, key=lambda eid: EVENTS[eid]["created"], reverse=True)]}
+
+
+@api_router.get("/join/{code}")
+async def join_by_code(code: str, request: Request):
+    """Attendees type the short session code instead of scanning the QR code."""
+    if _rate_limited("join:" + _client_ip(request), 60):
+        raise HTTPException(429, "Too many attempts. Wait a minute.")
+    _prune_events()
+    wanted = re.sub(r"[^A-Z0-9]", "", code.upper())
+    for eid, ev in EVENTS.items():
+        if ev.get("code") == wanted:
+            return {"id": eid}
+    raise HTTPException(404, "No session with this code.")
+
+
+class EventUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    organization: str | None = Field(default=None, max_length=200)
+    start_at: str | None = Field(default=None, max_length=40)
+    duration_minutes: int | None = Field(default=None, ge=0, le=1440)
+    labels: list[str] | None = Field(default=None, max_length=10)
+    pinned: bool | None = None
+    archive_transcripts: bool | None = None
+
+
+@api_router.patch("/events/{eid}", dependencies=[Depends(require_operator)])
+async def update_event(eid: str, body: EventUpdate):
+    ev = dict(_require_event(eid))
+    if body.name is not None:
+        ev["name"] = body.name or "Live Interpretation"
+    if body.organization is not None:
+        ev["organization"] = body.organization
+    if body.start_at is not None:
+        ev["start_at"] = _check_start(body.start_at)
+    if body.duration_minutes is not None:
+        ev["duration_minutes"] = body.duration_minutes
+    if body.labels is not None:
+        ev["labels"] = _clean_labels(body.labels)
+    if body.pinned is not None:
+        ev["pinned"] = body.pinned
+    if body.archive_transcripts is not None:
+        ev["archive"] = body.archive_transcripts
+    EVENTS[eid] = ev
+    return {"id": eid, **_public_event(eid), "archive": bool(ev.get("archive"))}
+
+
+@api_router.post("/events/{eid}/clone", dependencies=[Depends(require_operator)])
+async def clone_event(eid: str):
+    ev = _require_event(eid)
+    if len(EVENTS) >= MAX_EVENTS:
+        raise HTTPException(429, "Event capacity reached. Try again later.")
+    body = EventCreate(
+        name=f"{ev['name']} (copy)"[:200], organization=ev["organization"], target_language=ev["target"],
+        extra_languages=_targets(eid)[1:], human_languages=list(ev.get("human") or []), captions=ev["captions"],
+        logo=ev.get("logo"), sponsor=ev.get("sponsor", ""), duration_minutes=ev.get("duration_minutes", 0),
+        labels=list(ev.get("labels") or []), archive_transcripts=bool(ev.get("archive")),
+    )
+    response = await create_event(body)
+    created = json.loads(response.body)
+    if ev.get("pin_hash"):
+        EVENTS[created["id"]] = {**EVENTS[created["id"]], "pin_hash": ev["pin_hash"]}
+    return JSONResponse({**created, **_public_event(created["id"])}, headers={"Cache-Control": "no-store"})
+
+
+@api_router.delete("/events/{eid}", dependencies=[Depends(require_operator)])
+async def delete_event(eid: str):
+    _require_event(eid)
+    if any(r["operator"] for r in _event_rooms(eid)):
+        raise HTTPException(409, "Stop the broadcast before deleting this event.")
+    _drop_event(eid)
+    return {"deleted": eid}
+
+
+# ---------------------------------------------------------------------------
+# Transcript archive (opt-in per event). The operator's browser uploads the
+# timed segments; they are kept until the event is deleted or expires.
+# ---------------------------------------------------------------------------
+class Segment(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    text: str = Field(max_length=4000)
+    speaker: str | None = Field(default=None, max_length=80)
+
+
+class TranscriptUpload(BaseModel):
+    segments: list[Segment] = Field(max_length=8000)
+    source_lang: str | None = Field(default=None, max_length=10)
+
+
+TX_LANGS = set(LANGUAGE_NAMES) | {"src"}
+
+
+def _transcript_index(eid):
+    index = STORE.get(f"txindex:{eid}", {}) or {}
+    return [{"lang": lang, **meta} for lang, meta in sorted(index.items())]
+
+
+def _save_transcript(eid, lang, segments, translated_from=None):
+    STORE.set(f"tx:{eid}:{lang}", segments)
+    index = STORE.get(f"txindex:{eid}", {}) or {}
+    index[lang] = {"segments": len(segments), "updated": time.time(), "translated_from": translated_from}
+    STORE.set(f"txindex:{eid}", index)
+
+
+@api_router.put("/events/{eid}/transcripts/{lang}", dependencies=[Depends(require_operator)])
+async def upload_transcript(eid: str, lang: str, body: TranscriptUpload):
+    ev = _require_event(eid)
+    lang = lang.lower()
+    if lang not in TX_LANGS:
+        raise HTTPException(400, "Unknown transcript language.")
+    if not ev.get("archive"):
+        raise HTTPException(403, "Transcript archiving is off for this event.")
+    _save_transcript(eid, lang, [s.model_dump() for s in body.segments])
+    return {"lang": lang, "segments": len(body.segments)}
+
+
+@api_router.get("/events/{eid}/transcripts", dependencies=[Depends(require_operator)])
+async def list_transcripts(eid: str):
+    _require_event(eid)
+    return {"transcripts": _transcript_index(eid)}
+
+
+@api_router.get("/events/{eid}/transcripts/{lang}", dependencies=[Depends(require_operator)])
+async def get_transcript(eid: str, lang: str):
+    _require_event(eid)
+    segments = STORE.get(f"tx:{eid}:{lang.lower()}")
+    if segments is None:
+        raise HTTPException(404, "No transcript for this language.")
+    return JSONResponse({"lang": lang.lower(), "segments": segments}, headers={"Cache-Control": "no-store"})
+
+
+@api_router.delete("/events/{eid}/transcripts/{lang}", dependencies=[Depends(require_operator)])
+async def delete_transcript(eid: str, lang: str):
+    _require_event(eid)
+    lang = lang.lower()
+    STORE.delete_prefix(f"tx:{eid}:{lang}")
+    index = STORE.get(f"txindex:{eid}", {}) or {}
+    index.pop(lang, None)
+    STORE.set(f"txindex:{eid}", index)
+    return {"transcripts": _transcript_index(eid)}
+
+
+class TranslateRequest(BaseModel):
+    to: str = Field(max_length=10)
+
+
+async def _translate_texts(texts, language, api_key):
+    payload = {
+        "model": SUMMARY_MODEL,
+        "instructions": (
+            f"Translate each string of the JSON array 'items' into {language}. Return JSON "
+            "{\"items\": [...]} with exactly the same number of strings, in the same order. "
+            "Keep speaker names, numbers and proper nouns. Translate faithfully; do not summarize."
+        ),
+        "input": json.dumps({"items": texts}, ensure_ascii=False),
+        "text": {"format": {"type": "json_schema", "name": "translation", "strict": True, "schema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"items": {"type": "array", "items": {"type": "string"}}}, "required": ["items"]}}},
+        "store": False,
+    }
+    resp = await _http().post(OPENAI_RESPONSES_URL, headers=_openai_headers(api_key), json=payload, timeout=180.0)
+    if resp.status_code >= 400:
+        logger.error("OpenAI transcript translation error %s", resp.status_code)
+        _raise_upstream(resp.status_code, _upstream_code(resp.content), "translation model")
+    try:
+        items = json.loads(_response_text(resp.json()))["items"]
+    except (ValueError, KeyError, TypeError):
+        items = None
+    if not isinstance(items, list) or len(items) != len(texts):
+        raise HTTPException(502, "The translation came back incomplete. Try again.")
+    return [str(x) for x in items]
+
+
+@api_router.post("/events/{eid}/transcripts/{lang}/translate", dependencies=[Depends(require_operator)])
+async def translate_transcript(eid: str, lang: str, body: TranslateRequest, request: Request):
+    """Translate an archived transcript, keeping its timing (Wordly 'translate transcript')."""
+    _require_event(eid)
+    if _rate_limited("txtranslate:" + _client_ip(request), 10):
+        raise HTTPException(429, "Too many translation requests. Wait a minute.")
+    to = body.to.lower()
+    if to not in LANGUAGE_NAMES:
+        raise HTTPException(400, "Unknown target language.")
+    segments = STORE.get(f"tx:{eid}:{lang.lower()}")
+    if not segments:
+        raise HTTPException(404, "No transcript for this language.")
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(503, "The translation service is not configured on the server.")
+    out = []
+    try:
+        for i in range(0, len(segments), 80):
+            chunk = segments[i:i + 80]
+            translated = await _translate_texts([s["text"] for s in chunk], LANGUAGE_NAMES[to], api_key)
+            out += [{**s, "text": t} for s, t in zip(chunk, translated)]
+    except httpx.RequestError as exc:
+        logger.error("Network error reaching translation model: %s", type(exc).__name__)
+        raise HTTPException(502, "The translation could not be completed. Try again shortly.")
+    _save_transcript(eid, to, out, translated_from=lang.lower())
+    return {"transcripts": _transcript_index(eid)}
+
+
+# ---------------------------------------------------------------------------
+# Developer API keys: named bearer keys equivalent to the operator code.
+# ---------------------------------------------------------------------------
+def require_key_admin(request: Request):
+    """API keys cannot list, mint or revoke keys: only a signed-in operator can."""
+    require_operator(request)
+    if request.headers.get("authorization", "").startswith("Bearer tbk_"):
+        raise HTTPException(403, "API keys cannot manage API keys.")
+
+
+class KeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+def _api_keys():
+    return STORE.get("apikeys", []) or []
+
+
+@api_router.get("/keys", dependencies=[Depends(require_key_admin)])
+async def list_keys():
+    return {"keys": [{k: v for k, v in key.items() if k != "hash"} for key in _api_keys()]}
+
+
+@api_router.post("/keys", dependencies=[Depends(require_key_admin)])
+async def create_key(body: KeyCreate):
+    keys = _api_keys()
+    if len(keys) >= 20:
+        raise HTTPException(400, "At most 20 API keys. Revoke one first.")
+    secret = "tbk_" + secrets.token_urlsafe(32)
+    entry = {"id": secrets.token_hex(6), "name": body.name.strip(), "created": time.time(), "last4": secret[-4:],
+             "hash": hashlib.sha256(secret.encode()).hexdigest()}
+    STORE.set("apikeys", keys + [entry])
+    return JSONResponse({"key": secret, **{k: v for k, v in entry.items() if k != "hash"}}, headers={"Cache-Control": "no-store"})
+
+
+@api_router.delete("/keys/{key_id}", dependencies=[Depends(require_key_admin)])
+async def revoke_key(key_id: str):
+    STORE.set("apikeys", [k for k in _api_keys() if k["id"] != key_id])
+    return {"keys": [{k: v for k, v in key.items() if k != "hash"} for key in _api_keys()]}
 
 
 def _require_event(eid):
@@ -817,7 +1123,7 @@ async def usage():
 
 class GlossaryEntry(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    text: str = Field(default="", max_length=4000)
+    text: str = Field(default="", max_length=120000)
 
 
 class Library(BaseModel):
@@ -837,7 +1143,7 @@ async def put_library(body: Library):
 
 
 class CaptionRelayRequest(BaseModel):
-    provider: Literal["zoom", "teams"]
+    provider: Literal["zoom", "teams", "webhook"]
     url: str = Field(min_length=10, max_length=2000)
     text: str = Field(min_length=1, max_length=500)
     lang: str = Field(default="en-US", max_length=16)
@@ -848,6 +1154,23 @@ RELAY_HOSTS = {
     "zoom": re.compile(r"^([a-z0-9-]+\.)*zoom\.us$"),
     "teams": re.compile(r"^api\.captions\.office\.microsoft\.com$"),
 }
+
+
+async def _public_https_host(url: str) -> str:
+    """Webhooks may only reach public HTTPS hosts (no internal network, no SSRF)."""
+    parts = urlsplit(url.strip())
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or not host or parts.username or parts.password:
+        raise HTTPException(400, "The webhook must be an https:// address.")
+    try:
+        infos = await anyio.to_thread.run_sync(lambda: socket.getaddrinfo(host, parts.port or 443, proto=socket.IPPROTO_TCP))
+    except socket.gaierror:
+        raise HTTPException(400, "The webhook host could not be found.")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global or ip.is_multicast:
+            raise HTTPException(400, "The webhook must point to a public internet address.")
+    return url.strip()
 
 
 def _relay_url(req: CaptionRelayRequest) -> str:
@@ -868,9 +1191,13 @@ async def caption_relay(req: CaptionRelayRequest, request: Request):
     """Forward one caption line to a Zoom (API token) or Teams (CART) meeting."""
     if _rate_limited("relay:" + _client_ip(request), 900):
         raise HTTPException(429, "Too many caption lines. Slow down.")
-    url = _relay_url(req)
     try:
-        resp = await _http().post(url, content=req.text.encode("utf-8"), headers={"Content-Type": "text/plain; charset=utf-8"}, timeout=10.0)
+        if req.provider == "webhook":
+            url = await _public_https_host(req.url)
+            resp = await _http().post(url, json={"type": "caption", "text": req.text, "lang": req.lang, "seq": req.seq, "sent_at": time.time()}, timeout=10.0)
+        else:
+            url = _relay_url(req)
+            resp = await _http().post(url, content=req.text.encode("utf-8"), headers={"Content-Type": "text/plain; charset=utf-8"}, timeout=10.0)
     except httpx.RequestError as exc:
         logger.warning("Caption relay network error: %s", type(exc).__name__)
         raise HTTPException(502, "The meeting caption service could not be reached.")
@@ -1012,6 +1339,9 @@ async def _run_listener(websocket: WebSocket, eid: str, room, pin, wants_audio=T
     room["listeners"].add(websocket)
     if not wants_audio:
         room["audio_off"].add(websocket)
+    total = _event_listener_count(eid)
+    if not booth and eid in EVENTS and total > EVENTS[eid].get("peak_listeners", 0):
+        EVENTS[eid] = {**EVENTS[eid], "peak_listeners": total}
     await _notify_operator(eid)
     try:
         await websocket.send_json(_listener_status(room))

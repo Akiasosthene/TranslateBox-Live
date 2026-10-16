@@ -11,6 +11,7 @@ import { VoiceCard } from "../components/console/VoiceCard";
 import { TranscriptCard } from "../components/console/TranscriptCard";
 import { IntegrationsCard } from "../components/console/IntegrationsCard";
 import { TransportControls } from "../components/console/TransportControls";
+import { SpeakerBar } from "../components/console/SpeakerBar";
 import { getTarget, sourceLabel } from "../lib/languages";
 
 export default function Console() {
@@ -64,6 +65,7 @@ export default function Console() {
         )}
 
         <TransportControls />
+        <SpeakerBar />
 
         <section id="event" className="scroll-mt-24 space-y-4">
           <h2 className="font-bold text-lg">2 · {t("Create an event")}</h2>

@@ -45,3 +45,19 @@ test('an empty right-hand side blocks a word', () => {
   expect(rules).toHaveLength(1);
   expect(applyGlossary('Well darn, that is it.', rules)).toBe('Well, that is it.');
 });
+
+test('glossary sections, sounds-like, boost terms and symbols', () => {
+  const g = parseGlossary('[fr]\nMonkton -> Moncton\n[*]\nPorsche <porch, porsha>\nDFO => Pêches et Océans\ndarn ->\nC++ -> CPP\nBMH !!\n# comment');
+  expect(g.boost).toEqual(['Porsche', 'BMH']);
+  expect(applyGlossary('In monkton the porch, DFO said darn, C++ rocks.', g, 'fr')).toBe('In Moncton the Porsche, Pêches et Océans said, CPP rocks.');
+  expect(applyGlossary('In monkton the porch.', g, 'en')).toBe('In monkton the Porsche.');
+});
+
+test('3000-term glossaries stay fast (single pass)', () => {
+  const g = parseGlossary(Array.from({ length: 3000 }, (_, i) => `term${i} -> T${i}`).join('\n'));
+  const text = 'hello term2999 and term5 '.repeat(200);
+  const t = performance.now();
+  for (let i = 0; i < 50; i++) applyGlossary(text, g, 'fr');
+  expect(applyGlossary('term2999 term5 term50', g)).toBe('T2999 T5 T50');
+  expect(performance.now() - t).toBeLessThan(400);
+});

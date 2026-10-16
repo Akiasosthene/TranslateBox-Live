@@ -208,6 +208,10 @@ export function useBroadcast({
         sponsor: fields.sponsor || "",
         pin: fields.pin || null,
         captions: captionsToListeners,
+        archive_transcripts: !!fields.archive,
+        ...(fields.start_at ? { start_at: fields.start_at } : {}),
+        ...(fields.duration_minutes ? { duration_minutes: fields.duration_minutes } : {}),
+        ...(fields.labels?.length ? { labels: fields.labels } : {}),
       }),
     });
     if (!res.ok) throw new Error(await responseError(res, "Could not create event."));

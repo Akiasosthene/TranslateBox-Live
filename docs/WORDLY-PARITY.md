@@ -1,0 +1,73 @@
+# Wordly vs TranslateBox — feature parity (V2.3, October 2026)
+
+Clean-room comparison built from Wordly's **public** user guides and product pages. No Wordly code, app binary or private API was used.
+
+Legend: ✅ equal or better · 🟡 partial · ❌ missing · ➕ TranslateBox only
+
+## Attendees (listener)
+
+| Wordly | TranslateBox | Status |
+|---|---|---|
+| Join by QR code or link | QR code, link, embeddable page (`?embed=1`) | ✅ |
+| Join with a session code | `/join` + 8-character code on screen, console and listener page | ✅ |
+| Choose language, switch live | Language buttons, live switch, remembered choice | ✅ |
+| Audio + captions on the phone | PCM audio with jitter buffer, captions, volume, pause, lock-screen controls | ✅ |
+| Caption size, dark/light | 3 sizes, high contrast | ✅ |
+| "Complete phrases only" | "Complete sentences only" | ✅ |
+| Download the transcript as an attendee | "Save text" of the captions received | 🟡 (no timing for listeners) |
+| No app, no account | Same | ✅ |
+| Help panel | Built-in help | ✅ |
+| 50+ output languages | **13 output languages** (limit of `gpt-realtime-translate`); source language auto-detected | 🟡 **main remaining gap** |
+| — | Headphone test, wake lock, human-interpreter label, published AI summary | ➕ |
+
+## Presenters / operators
+
+| Wordly | TranslateBox | Status |
+|---|---|---|
+| Present from a browser, choose microphone | Same + output device, ambient (far-field) mode, input test | ✅ |
+| Speaker names | Speaker bar, names in captions, room screen and transcripts | ✅ |
+| Pause / mute / push-to-talk | Mute, push-to-talk with configurable key, cough button for booths | ✅ |
+| Glossary (terms, sounds-like, per language) | ~3000 terms, `[fr]` sections, `<sounds, like>`, `!!` preferred terms, hide words | ✅ |
+| Choice of voice | 13 studio voices + style (sermon, interpreter…), original realtime voice | ✅ |
+| Room display of captions | Room screen, multilingual screen (up to 4), OBS/vMix overlay | ✅ |
+| Auto-stop | After N minutes and on silence | ✅ |
+| — | Human interpreter booths mixed with AI languages | ➕ |
+| — | Dubbed WAV voice track, AI summary published to listeners | ➕ |
+
+## Administration
+
+| Wordly | TranslateBox | Status |
+|---|---|---|
+| Schedule sessions (date, duration) | Portal → New session | ✅ |
+| Labels, search | Labels, search by name/code/label | ✅ |
+| Duplicate / delete sessions | Duplicate, delete, pin (never expires) | ✅ |
+| Bulk upload (CSV) | CSV import + template | ✅ |
+| Passcode | Listener PIN | ✅ |
+| Stored transcripts, download later | Opt-in archive, TXT / timed TXT / SRT / VTT | ✅ |
+| Translate a stored transcript | Translation keeping timing | ✅ |
+| Timestamp offset | Offset in seconds on exports | ✅ |
+| Usage / activity reports | Minutes per language and session, peak listeners, CSV | ✅ |
+| User accounts, roles, transferable minutes | Single operator code or SSO allowlist; monthly cap | ❌ (platform phase) |
+| 2FA | Delegated to the SSO provider | 🟡 |
+| Developer API | HTTP API + API keys, [docs/API.md](API.md) | ✅ |
+
+## Integrations
+
+| Wordly | TranslateBox | Status |
+|---|---|---|
+| Zoom captions | Zoom API-token captions | ✅ |
+| Microsoft Teams captions | Teams CART link | ✅ |
+| OBS / vMix / streaming overlays | Transparent overlay page | ✅ |
+| Event platforms (Cvent, Hopin…) via embed | Embeddable listener page, `EMBED_ORIGINS` | ✅ |
+| Generic webhook / API | Caption webhook (public HTTPS only) | ✅ |
+| Zoom / Teams / Meet **audio bot** (joins the meeting) | — | ❌ |
+| RTMP/RTMPS ingest (Webex, Vimeo, YouTube) | — | ❌ |
+| Native iOS / Android apps | Installable web app (PWA) | 🟡 |
+
+## Remaining gaps and what they take
+
+1. **More output languages** — depends on OpenAI's realtime translation model. Option: a second pipeline (speech-to-text → text translation → TTS) for languages the realtime model lacks, with ~2–4 s more delay.
+2. **RTMP ingest** — an `nginx-rtmp`/`ffmpeg` container that turns the stream into the same 16 kHz PCM as the microphone.
+3. **Meeting bots** — Zoom Meeting SDK / Teams bot framework; needs app registration with each vendor.
+4. **Accounts, roles, minute pools, billing** — the multi-tenant "platform" phase.
+5. **Native apps** — wrap the PWA (Capacitor) if store presence is required.

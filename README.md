@@ -80,6 +80,20 @@ docker compose up -d --build
 - **Voix doublée** : pour chaque langue traduite, un fichier WAV avec la voix studio, calé sur le minutage de la session, pour doubler une vidéo enregistrée.
 - **Connexion SSO (Google, Microsoft…)** : renseigner `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOWED` (courriels ou `@domaine`) et `PUBLIC_ORIGIN`, puis déclarer `https://<domaine>/api/auth/sso/callback` comme URI de redirection chez le fournisseur. Le code opérateur reste valable. Les sessions SSO durent `SSO_SESSION_HOURS` (12 h) et sont perdues au redémarrage du backend.
 
+## Portail, codes de session, archives (V2.3)
+
+- **Code de session** : chaque événement a un code court (ex. `UHEG3270`) affiché dans la console, sur l’écran de salle et la page d’écoute. Les auditeurs tapent ce code sur `/join` (ou ouvrent `/join/UHEG3270`) au lieu de scanner le QR code.
+- **Portail** (`/portal`, icône grille dans l’en-tête) : planifier des sessions (date, durée, étiquettes, langues), modifier, dupliquer, épingler (n’expire jamais), supprimer, importer un CSV (`name,start,duration,languages,labels,organization,archive` — bouton « Modèle CSV »), ouvrir une session dans la console.
+- **Archive des transcriptions** (option par événement, désactivée par défaut) : la console envoie les transcriptions au serveur chaque minute et à l’arrêt. Dans le portail : TXT, TXT horodaté avec décalage, SRT, VTT, traduction d’une transcription dans une autre langue en gardant le minutage, suppression. Les auditeurs voient la mention « L’organisateur conserve une transcription écrite ». Tout est supprimé avec l’événement.
+- **Noms des orateurs** : barre « Orateur » sous les commandes ; les noms viennent de Paramètres → Orateurs. Le nom apparaît dans les sous-titres, l’écran de salle et les transcriptions à chaque changement d’orateur, pour toutes les langues.
+- **Écran multilingue** : `/e/<id>/screen?langs=en,fr,es` affiche jusqu’à 4 langues côte à côte. Bandeau « En pause » quand l’orateur s’arrête.
+- **Page d’écoute** : contraste élevé, « phrases complètes seulement », enregistrement du texte reçu, aide intégrée, heure de début des sessions planifiées, bandeau de pause/fin.
+- **Glossaire avancé** (jusqu’à ~3000 termes) : sections par langue `[fr]`, graphies phonétiques `Moncton <Monkton, Monckton>`, termes préférés `Terme !!` (envoyés à l’interprète IA, ~1500 caractères max), commentaires `#`.
+- **Webhook de sous-titres** : dans Intégrations, « Webhook (HTTPS) » reçoit chaque ligne en JSON. Seules les adresses Internet publiques en HTTPS sont acceptées.
+- **Clés API** (`tbk_…`) : Portail → Clés API. Elles donnent les droits opérateur sauf la gestion des clés. Référence : [docs/API.md](docs/API.md).
+- **Rapport d’activité CSV**, **arrêt sur silence** (Paramètres), **touche pour parler configurable**.
+- Comparaison détaillée : [docs/WORDLY-PARITY.md](docs/WORDLY-PARITY.md).
+
 ## Sécurité et confidentialité
 
 Les routes de création de session, d’événement et de statistiques exigent `Authorization: Bearer <OPERATOR_TOKEN>`. Le code opérateur reste en mémoire dans l’onglet et n’est pas intégré au build. Chaque événement possède un jeton de publication distinct, envoyé dans le premier message WebSocket, jamais dans le QR code ou l’URL. Le PIN est également envoyé dans le premier message.

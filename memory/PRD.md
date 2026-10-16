@@ -93,3 +93,14 @@ Applied code-review fixes without changing behavior:
 - Shared glossary library, event logo and sponsor line, published summaries, summary language choice, dubbed voice WAV from timed transcripts.
 - Optional OIDC single sign-on (PKCE, state single-use, userinfo email allowlist), in-memory sessions.
 - Still out of scope: CEA-608 hardware encoders, Zoom/Teams audio bots, billing/payments, per-user roles.
+
+## V2.3 (2026-10) — Wordly parity, portal
+- Short session codes (4 letters + 4 digits, no I/O), `/join` page, `GET /api/join/{code}` (rate-limited).
+- Scheduling fields (`start_at`, `duration_minutes`, `labels`, `pinned`), expiry 24 h after scheduled end, PATCH/clone/DELETE, CSV bulk import in the portal.
+- Opt-in server transcript archive (`tx:{eid}:{lang}`, index `txindex:{eid}`), console uploads each minute + on stop, portal downloads (TXT, timed TXT with offset, SRT, VTT), Responses-API translation of archived transcripts keeping timing.
+- Speaker labels (SegmentRecorder speaker, prefix at speaker change in captions/screen/transcripts, all languages).
+- Multilingual room screen (`?langs=`), pause banners, listener high contrast / complete sentences / save text / help / start time / archive notice.
+- Glossary engine: per-language sections, sounds-like aliases, boost terms into interpreter instructions, token/phrase lookup (3000 terms < 8 ms per apply).
+- Webhook caption relay (public HTTPS only, DNS-checked), API keys (hashed, cannot manage keys), activity CSV, stop on silence, configurable PTT key.
+- Still out of scope: RTMP/RTMPS ingest (Webex, Vimeo), Zoom/Teams/Meet audio bots, user accounts with transferable minutes and roles, 2FA, native mobile apps, CEA-608 encoders.
+

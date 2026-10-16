@@ -18,7 +18,7 @@ export const TransportControls = () => {
   const {
     status, active, inputMuted, translationMuted, duration, metrics,
     start, stop, restart, toggleTranslationMute, toggleInputMute,
-    pttEnabled, setPttEnabled, setMicMuted,
+    pttEnabled, setPttEnabled, setMicMuted, pttKey,
   } = useTranslationSession();
   const [talking, setTalking] = useState(false);
   const talkingRef = useRef(false);
@@ -30,8 +30,8 @@ export const TransportControls = () => {
   useEffect(() => {
     if (!pttEnabled || !active) return undefined;
     const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "") || e.target?.isContentEditable;
-    const down = (e) => { if (e.code === "Space" && !e.repeat && !typing(e)) { e.preventDefault(); talk(true); } };
-    const up = (e) => { if (e.code === "Space" && !typing(e)) { e.preventDefault(); talk(false); } };
+    const down = (e) => { if (e.code === (pttKey || "Space") && !e.repeat && !typing(e)) { e.preventDefault(); talk(true); } };
+    const up = (e) => { if (e.code === (pttKey || "Space") && !typing(e)) { e.preventDefault(); talk(false); } };
     const blur = () => talk(false);
     window.addEventListener("keydown", down); window.addEventListener("keyup", up); window.addEventListener("blur", blur);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); };
@@ -60,7 +60,7 @@ export const TransportControls = () => {
           <button data-testid="ptt-button" aria-pressed={talking}
             onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); talk(true); }} onPointerUp={() => talk(false)} onPointerCancel={() => talk(false)} onContextMenu={(e) => e.preventDefault()}
             className={`select-none touch-none h-12 px-5 rounded-xl font-bold text-sm border-2 transition-colors ${talking ? "bg-emerald-500 border-emerald-500 text-white shadow-[0_0_24px_rgba(16,185,129,0.5)]" : "border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300"}`}>
-            {talking ? t("On air") : t("Hold to talk (Space)")}
+            {talking ? t("On air") : `${t("Hold to talk")} (${(pttKey || "Space").replace(/^Key|^Digit/, "")})`}
           </button>
         ) : null}
         <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer" data-testid="ptt-toggle">

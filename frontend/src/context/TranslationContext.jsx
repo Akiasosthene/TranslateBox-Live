@@ -88,11 +88,21 @@ export function TranslationProvider({ children }) {
   const [humanLangs, setHumanLangs] = usePersistentState("tbl-human-langs", []);
   const [pttEnabled, setPttEnabled] = usePersistentState("tbl-ptt", false);
   const [autoStopMinutes, setAutoStopMinutes] = usePersistentState("tbl-autostop", 0);
+  // Stop after this many minutes without any speech (0 = never).
+  const [idleStopMinutes, setIdleStopMinutes] = usePersistentState("tbl-idlestop", 0);
+  const [pttKey, setPttKey] = usePersistentState("tbl-ptt-key", "Space");
+  const [archiveState, setArchiveState] = useState({ at: null, error: "" });
   const [relayDestinations, setRelayDestinations] = useState([]);
   const relayRef = useRef(null);
   if (!relayRef.current) relayRef.current = new CaptionRelay({ apiBase: API, onChange: setRelayDestinations });
   const primarySegmentRef = useRef("");
-  const glossaryRulesRef = useRef([]);
+  const glossaryRulesRef = useRef(null);
+  // Current speaker label (Wordly "Enter Name"): shown at speaker changes.
+  const [speaker, setSpeaker] = useState("");
+  const speakerRef = useRef("");
+  speakerRef.current = speaker;
+  const labelledRef = useRef({ target: "" });
+  const lastActivityRef = useRef(Date.now());
   const targetLangRef = useRef(targetLang);
   targetLangRef.current = targetLang;
   // Timed transcripts for subtitle export and summaries (tab memory only).
@@ -108,18 +118,24 @@ export function TranslationProvider({ children }) {
       handlers: {
         onStatus: (patch) => setStatus((s) => ({ ...s, ...patch })),
         onTranscript: ({ side, delta, segmentBreak }) => {
+          lastActivityRef.current = Date.now();
           const rec = recordersRef.current[side];
-          if (rec) { if (segmentBreak) rec.end(); else rec.delta(delta); }
+          if (rec) { if (segmentBreak) rec.end(); else rec.delta(delta, speakerRef.current || null); }
+          // Label the caption when the speaker changes, at the start of a segment.
+          if (side === "target" && !segmentBreak && delta && primarySegmentRef.current === "" && speakerRef.current && labelledRef.current.target !== speakerRef.current) {
+            labelledRef.current.target = speakerRef.current;
+            delta = `${speakerRef.current}: ${delta}`;
+          }
           if (side === "target") {
             if (segmentBreak) {
               const text = primarySegmentRef.current.trim();
               primarySegmentRef.current = "";
-              if (text) relayRef.current.push(targetLangRef.current, applyGlossary(text, glossaryRulesRef.current));
+              if (text) relayRef.current.push(targetLangRef.current, applyGlossary(text, glossaryRulesRef.current, targetLangRef.current));
             } else primarySegmentRef.current += delta || "";
           }
           if (side === "target" && speechRef.current) {
             if (segmentBreak) speechRef.current.endSegment();
-            else speechRef.current.feed(delta);
+            else speechRef.current.feed(delta.replace(/^[^:\n]{1,80}: /, (m) => (m.slice(0, -2) === labelledRef.current.target ? "" : m)));
           }
           const setter = side === "source" ? setSourceText : setTargetText;
           setter((prev) => {
@@ -151,12 +167,21 @@ export function TranslationProvider({ children }) {
   const voiceStyle = voiceStyleKey === "custom" ? customVoiceStyle : (VOICE_STYLES[voiceStyleKey] || VOICE_STYLES.interpreter).text;
   useEffect(() => {
     engineRef.current.program.setVoiceMode(voiceMode);
-    speechRef.current.configure({ enabled: voiceMode === "studio", voice: studioVoice, style: voiceStyle, glossary });
-  }, [voiceMode, studioVoice, voiceStyle, glossary]);
+    speechRef.current.configure({ enabled: voiceMode === "studio", voice: studioVoice, style: voiceStyle, glossary, lang: targetLang });
+  }, [voiceMode, studioVoice, voiceStyle, glossary, targetLang]);
 
   const glossaryRules = useMemo(() => parseGlossary(glossary), [glossary]);
   glossaryRulesRef.current = glossaryRules;
-  const captionText = useMemo(() => applyGlossary(targetText, glossaryRules), [targetText, glossaryRules]);
+  const captionText = useMemo(() => applyGlossary(targetText, glossaryRules, targetLang), [targetText, glossaryRules, targetLang]);
+  // Preferred terms go to the interpreter (kept short: the server caps instructions).
+  const boostLine = useMemo(() => {
+    let list = "";
+    for (const term of glossaryRules?.boost || []) {
+      if (list.length + term.length > 1500) break;
+      list += (list ? ", " : "") + term;
+    }
+    return list ? `\n\nPreferred terms and spellings: ${list}` : "";
+  }, [glossaryRules]);
   const voiceMeta = useMemo(() => voiceMode === "studio"
     ? { mode: "studio", voice: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label || studioVoice }
     : { mode: "original", voice: null }, [voiceMode, studioVoice]);
@@ -240,7 +265,9 @@ export function TranslationProvider({ children }) {
     setTranslatedSeconds(0);
     setTesting(false);
     const targetName = getTarget(targetLang).name;
-    const instructions = compileInstructions({ modeKey, customText: customInstructions, targetName, profile });
+    const instructions = (compileInstructions({ modeKey, customText: customInstructions, targetName, profile }) + boostLine).slice(0, 6000);
+    labelledRef.current = { target: "" };
+    lastActivityRef.current = Date.now();
     try {
       await engineRef.current.start({
         deviceId: selectedDevice,
@@ -259,7 +286,7 @@ export function TranslationProvider({ children }) {
       setActive(false);
       return false;
     }
-  }, [selectedDevice, captureSource, targetLang, modeKey, customInstructions, profile, ambientMode, loadDevices]);
+  }, [selectedDevice, captureSource, targetLang, modeKey, customInstructions, profile, ambientMode, loadDevices, boostLine]);
 
   const stop = useCallback(() => {
     speechRef.current.reset();
@@ -332,8 +359,8 @@ export function TranslationProvider({ children }) {
   const channelStartArgs = useCallback((lang) => ({
     deviceId: selectedDevice,
     ambient: ambientMode,
-    instructions: compileInstructions({ modeKey, customText: customInstructions, targetName: getTarget(lang).name, profile }),
-  }), [selectedDevice, ambientMode, modeKey, customInstructions, profile]);
+    instructions: (compileInstructions({ modeKey, customText: customInstructions, targetName: getTarget(lang).name, profile }) + boostLine).slice(0, 6000),
+  }), [selectedDevice, ambientMode, modeKey, customInstructions, profile, boostLine]);
   const channelVoiceConfig = useMemo(() => ({
     voiceMode, voice: studioVoice, voiceLabel: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label, style: voiceStyle, glossary,
   }), [voiceMode, studioVoice, voiceStyle, glossary]);
@@ -359,6 +386,19 @@ export function TranslationProvider({ children }) {
     broadcast.stopEvent();
     setError(`Automatic stop after ${autoStopMinutes} minutes (Settings → automatic stop).`);
   }, [duration, autoStopMinutes, broadcast]);
+
+  // Idle stop: nobody has spoken for a while (Wordly "auto-pause on silence").
+  useEffect(() => {
+    if (!idleStopMinutes || !active) return;
+    if (Date.now() - lastActivityRef.current < idleStopMinutes * 60000) return;
+    if (broadcast.broadcasting) broadcast.stopEvent(); else stop();
+    setError(`Stopped after ${idleStopMinutes} minutes without speech (Settings → stop on silence).`);
+  }, [duration, idleStopMinutes, active, broadcast, stop]);
+
+  // Speaker label reaches every extra language too.
+  useEffect(() => {
+    for (const ch of broadcast.extrasRef.current.values()) ch.setSpeaker(speaker);
+  }, [speaker, broadcast.channels, broadcast.extrasRef]);
 
   const fetchUsage = useCallback(async () => {
     const res = await operatorFetch(`${API}/usage`);
@@ -389,11 +429,39 @@ export function TranslationProvider({ children }) {
     return out;
   }, [sourceLang, targetLang, broadcast.extrasRef, broadcast.archiveRef]);
 
+  // Server archive (opt-in per event): upload every minute and when stopping.
+  const archiveNow = useCallback(async () => {
+    const ev = broadcast.eventInfo;
+    if (!ev?.archive) return false;
+    const rows = transcripts().filter((r) => !r.recorder.empty);
+    try {
+      for (const row of rows) {
+        const segments = row.recorder.all().slice(-8000).map((x) => ({
+          start: x.start, end: x.end, text: applyGlossary(x.text, glossaryRulesRef.current, row.lang).slice(0, 4000), speaker: x.speaker || null,
+        }));
+        const res = await operatorFetch(`${API}/events/${encodeURIComponent(ev.id)}/transcripts/${encodeURIComponent(row.lang)}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ segments, source_lang: row.key === "source" ? null : (sourceLang === "auto" ? null : sourceLang) }),
+        });
+        if (!res.ok) throw new Error(await responseError(res, "Transcript archive failed."));
+      }
+      setArchiveState({ at: Date.now(), error: "" });
+      return true;
+    } catch (e) { setArchiveState((a) => ({ ...a, error: e.message })); return false; }
+  }, [broadcast.eventInfo, transcripts, sourceLang]);
+  const archiveRefFn = useRef(archiveNow);
+  archiveRefFn.current = archiveNow;
+  useEffect(() => {
+    if (!broadcast.broadcasting || !broadcast.eventInfo?.archive) return undefined;
+    const iv = setInterval(() => archiveRefFn.current(), 60000);
+    return () => { clearInterval(iv); archiveRefFn.current(); };
+  }, [broadcast.broadcasting, broadcast.eventInfo?.archive]);
+
   const summarize = useCallback(async ({ text, lang }) => {
     const res = await operatorFetch(`${API}/summary`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: applyGlossary(text, glossaryRules).slice(-190000), language: lang, title: profile.eventName || broadcast.eventInfo?.name || null }),
+      body: JSON.stringify({ text: applyGlossary(text, glossaryRules, lang).slice(-190000), language: lang, title: profile.eventName || broadcast.eventInfo?.name || null }),
     });
     if (!res.ok) throw new Error(await responseError(res, "The summary could not be created."));
     return (await res.json()).summary;
@@ -419,6 +487,7 @@ export function TranslationProvider({ children }) {
     ...broadcast,
     toggleTranslationMute, toggleInputMute: () => setMicMuted(!inputMutedRef.current), testInput, stopTest,
     setMicMuted, pttEnabled, setPttEnabled, autoStopMinutes, setAutoStopMinutes,
+    idleStopMinutes, setIdleStopMinutes, pttKey, setPttKey, speaker, setSpeaker, archiveNow, archiveState,
     relayDestinations, addRelay, removeRelay, fetchUsage, loadLibrary, saveLibrary, dub, humanLangs, setHumanLangs,
     clearError: () => setError(null),
     voiceMode, setVoiceMode, studioVoice, setStudioVoice, voiceStyleKey, setVoiceStyleKey,

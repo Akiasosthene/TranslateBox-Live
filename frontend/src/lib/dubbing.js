@@ -5,13 +5,13 @@ const RATE = 24000;
 // Builds a translated voice track (WAV, 24 kHz mono) aligned to the timed
 // transcript: each segment is voiced with the studio voice and placed at its
 // original start time, or right after the previous one if speech runs long.
-export async function dubSegments({ apiBase, segments, voice, style, rules, onProgress = () => {}, signal }) {
+export async function dubSegments({ apiBase, segments, voice, style, rules, lang = "*", onProgress = () => {}, signal }) {
   const placed = [];
   let cursor = 0;
   for (let i = 0; i < segments.length; i++) {
     if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
     const seg = segments[i];
-    const text = applyGlossary(seg.text, rules).slice(0, 1200);
+    const text = applyGlossary(seg.text, rules, lang).slice(0, 1200);
     if (!/[\p{L}\p{N}]/u.test(text)) continue;
     const pcm = await synthesize(apiBase, { text, voice, style }, signal);
     const at = Math.max(Math.round((seg.start / 1000) * RATE), cursor);

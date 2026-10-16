@@ -5,13 +5,17 @@ import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Markdownish } from "../components/Markdownish";
-import { Play, Pause, Volume2, Wifi, WifiOff, Headphones, Sparkles, Square, UserRound, FileText } from "lucide-react";
+import { Play, Pause, Volume2, Wifi, WifiOff, Headphones, Sparkles, Square, UserRound, FileText, HelpCircle, Download, Contrast } from "lucide-react";
 import { WS_BASE } from "../lib/broadcast";
 import { createAudioContext, PcmPlayer, WIRE_RATE } from "../lib/pcmAudio";
 import { API } from "../lib/api";
 import { getTarget } from "../lib/languages";
+import { completeOnly } from "../lib/captions";
 
 const RETRY_DELAYS = [1000, 2000, 4000, 8000];
+const readPref = (key, fallback) => { try { const v = localStorage.getItem(key); return v === null ? fallback : v === "1"; } catch { return fallback; } };
+const writePref = (key, on) => { try { localStorage.setItem(key, on ? "1" : "0"); } catch { /* optional */ } };
+
 const CLOSE_MESSAGES = {
   4401: "Incorrect PIN.",
   4403: "This site is not allowed by the server.",
@@ -40,6 +44,10 @@ export default function Listener() {
   const [volume, setVolume] = useState(1);
   const [paused, setPaused] = useState(false);
   const [level, setLevel] = useState(0);
+  const [contrast, setContrast] = useState(() => readPref("tbl-contrast", false));
+  const [complete, setComplete] = useState(() => readPref("tbl-complete", false));
+  const [wasLive, setWasLive] = useState(false);
+  useEffect(() => { if (live) setWasLive(true); }, [live]);
 
   const wsRef = useRef(null);
   const ctxRef = useRef(null);
@@ -254,6 +262,7 @@ export default function Listener() {
           <p className="text-[11px] font-mono uppercase tracking-[0.35em] text-emerald-400/90">TranslateBox · {t("Live")}</p>
           <h1 className="mt-4 text-[28px] leading-tight font-extrabold text-slate-50 text-balance">{info?.name || t("Live Interpretation")}</h1>
           {info?.organization && <p className="text-slate-400 mt-1">{info.organization}</p>}
+          {info?.start_at && !info.live && new Date(info.start_at) > new Date() && <p className="text-sm text-emerald-300 mt-2" data-testid="listener-start">{t("Starts")} {new Date(info.start_at).toLocaleString()}</p>}
           {info?.sponsor && <p className="text-xs text-slate-500 mt-2" data-testid="listener-sponsor">{info.sponsor}</p>}
           {targets.length > 1 ? (
             <div className="mt-5 space-y-2">
@@ -313,7 +322,7 @@ export default function Listener() {
             </div>
 
             {!live && conn === "connected" && (
-              <p className="text-amber-300 text-sm text-center">{t("Translation temporarily unavailable — resuming automatically…")}</p>
+              <p className="text-amber-300 text-sm text-center" data-testid="listener-paused">{wasLive ? t("The speaker has paused or the session has ended. Keep this page open: audio resumes automatically.") : t("Translation temporarily unavailable — resuming automatically…")}</p>
             )}
 
             <section aria-label={t("Captions")} className="space-y-2">
@@ -326,10 +335,17 @@ export default function Listener() {
                   <option value={18}>{t("Standard")}</option><option value={24}>{t("Large")}</option><option value={32}>{t("Extra large")}</option>
                 </select>
               </label>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" aria-pressed={contrast} data-testid="listener-contrast" onClick={() => { setContrast(!contrast); writePref("tbl-contrast", !contrast); }}
+                  className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border text-xs ${contrast ? "border-yellow-300 text-yellow-200" : "border-white/15 text-slate-300"}`}><Contrast className="h-3.5 w-3.5" />{t("High contrast")}</button>
+                <button type="button" aria-pressed={complete} data-testid="listener-complete" onClick={() => { setComplete(!complete); writePref("tbl-complete", !complete); }}
+                  className={`h-9 px-3 rounded-lg border text-xs ${complete ? "border-emerald-400 text-emerald-200" : "border-white/15 text-slate-300"}`}>{t("Complete sentences only")}</button>
+                {caption && <button type="button" onClick={() => downloadCaptions(caption, info?.name, lang)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-white/15 text-xs text-slate-300"><Download className="h-3.5 w-3.5" />{t("Save text")}</button>}
+              </div>
               {caption ? (
                 <div ref={captionRef} style={{ fontSize: `${captionSize}px` }} data-testid="listener-caption"
-                  className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 text-left leading-relaxed text-slate-100 max-h-64 overflow-y-auto whitespace-pre-wrap">
-                  {caption}
+                  className={`rounded-2xl p-4 text-left leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap ${contrast ? "bg-black border-2 border-yellow-300 text-yellow-100 font-semibold" : "bg-white/[0.04] border border-white/10 text-slate-100"}`}>
+                  {complete ? (completeOnly(caption) || "…") : caption}
                 </div>
               ) : <p className="text-sm text-slate-400">{t("Captions appear here when the organizer enables them.")}</p>}
             </section>
@@ -363,6 +379,18 @@ export default function Listener() {
           )}
           <p className="text-xs text-slate-500">{t("On iPhone, turn up the media volume. Keep this page open during the event.")}</p>
           <p className="text-[11px] text-slate-600 font-mono">{t("No account needed · audio is not recorded")}</p>
+          {info?.archive && <p className="text-[11px] text-slate-500" data-testid="listener-archive-notice">{t("The organizer keeps a text transcript of this session.")}</p>}
+          {info?.code && <p className="text-[11px] text-slate-500 font-mono">{t("Session code")} {info.code}</p>}
+          <details className="mx-auto max-w-sm text-left rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-400" data-testid="listener-help">
+            <summary className="cursor-pointer flex items-center gap-1.5 text-slate-300"><HelpCircle className="h-3.5 w-3.5" />{t("Help")}</summary>
+            <ul className="mt-2 space-y-1.5 list-disc pl-4">
+              <li>{t("No sound: turn up the media volume, unmute the phone and tap LISTEN again.")}</li>
+              <li>{t("Bluetooth headphones add a delay; wired headphones are faster.")}</li>
+              <li>{t("Change language at any time with the buttons at the top.")}</li>
+              <li>{t("Keep this page open; locking the phone may stop the sound on some devices.")}</li>
+              <li>{t("Captions: use Caption size, High contrast or Complete sentences only.")}</li>
+            </ul>
+          </details>
         </div>
       </div>
     </Shell>
@@ -376,3 +404,11 @@ const Shell = ({ children, embed }) => (
     {children}
   </div>
 );
+
+function downloadCaptions(text, name, lang) {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `${String(name || "captions").replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase()}-${lang || ""}.txt`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}

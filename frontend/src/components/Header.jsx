@@ -3,7 +3,7 @@ import { InterfaceLanguage } from './InterfaceLanguage';
 import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Sun, Moon, Download, Bug } from "lucide-react";
+import { Sun, Moon, Download, Bug, LayoutGrid } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 
 export const Header = () => {
@@ -53,6 +53,9 @@ export const Header = () => {
             <Download className="h-5 w-5" />
           </button>
         )}
+        <Link data-testid="portal-nav-link" to="/portal" className={iconBtn} title={t("Portal: sessions, transcripts, activity")}>
+          <LayoutGrid className="h-5 w-5" />
+        </Link>
         <Link data-testid="debug-nav-link" to="/debug" className={iconBtn} title={t("Debug console")}>
           <Bug className="h-5 w-5" />
         </Link>

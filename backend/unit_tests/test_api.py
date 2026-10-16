@@ -19,6 +19,7 @@ def reset(monkeypatch):
     server.EVENTS.clear()
     server.ROOMS.clear()
     server._rate_buckets.clear()
+    server.STORE.set('apikeys', [])
 
 
 @pytest.fixture
@@ -507,3 +508,97 @@ def test_sso_flow_issues_operator_session_for_allowed_accounts(client, monkeypat
             assert '#sso_error=' in location
     replay = client.get(f'/api/auth/sso/callback?code=c&state={state}', follow_redirects=False)
     assert '#sso_error=' in replay.headers['location']  # states are single-use
+
+
+def test_session_code_scheduling_clone_and_delete(client):
+    ev = event(client, name='Culte', start_at='2026-11-01T10:00:00-03:00', duration_minutes=90, labels=['église', ' ', 'dimanche'], pinned=True, pin='2468')
+    assert len(ev['code']) == 8 and ev['code'][:4].isalpha() and ev['code'][4:].isdigit()
+    assert ev['labels'] == ['église', 'dimanche'] and ev['pinned'] and ev['duration_minutes'] == 90
+    assert client.get(f"/api/join/{ev['code'].lower()[:4]}-{ev['code'][4:]}").json() == {'id': ev['id']}
+    assert client.get('/api/join/ZZZZ0000').status_code == 404
+    assert client.post('/api/events', headers=AUTH, json={'start_at': 'tomorrow'}).status_code == 400
+    upd = client.patch(f"/api/events/{ev['id']}", headers=AUTH, json={'name': 'Culte du soir', 'labels': ['soir'], 'archive_transcripts': True}).json()
+    assert upd['name'] == 'Culte du soir' and upd['labels'] == ['soir'] and upd['archive'] is True
+    clone = client.post(f"/api/events/{ev['id']}/clone", headers=AUTH).json()
+    assert clone['id'] != ev['id'] and clone['code'] != ev['code'] and clone['name'] == 'Culte du soir (copy)' and clone['pin_protected']
+    assert client.delete(f"/api/events/{clone['id']}", headers=AUTH).json() == {'deleted': clone['id']}
+    assert client.get(f"/api/events/{clone['id']}").status_code == 404
+    # pinned and future events are not pruned by age
+    server.EVENTS[ev['id']] = {**server.EVENTS[ev['id']], 'created': time.time() - 10 * server.EVENT_TTL}
+    server._prune_events()
+    assert ev['id'] in server.EVENTS
+
+
+def test_transcript_archive_and_translation(client, monkeypatch):
+    ev = event(client, target_language='fr')
+    seg = {'segments': [{'start': 0, 'end': 1500, 'text': 'Bonjour à tous.', 'speaker': 'Pasteur'}, {'start': 1600, 'end': 2500, 'text': 'Merci.'}]}
+    assert client.put(f"/api/events/{ev['id']}/transcripts/fr", headers=AUTH, json=seg).status_code == 403  # opt-in
+    client.patch(f"/api/events/{ev['id']}", headers=AUTH, json={'archive_transcripts': True})
+    assert client.put(f"/api/events/{ev['id']}/transcripts/fr", headers=AUTH, json=seg).json() == {'lang': 'fr', 'segments': 2}
+    assert client.get(f"/api/events/{ev['id']}/transcripts/fr").status_code == 401
+    got = client.get(f"/api/events/{ev['id']}/transcripts/fr", headers=AUTH).json()['segments']
+    assert got[0]['speaker'] == 'Pasteur' and got[1]['speaker'] is None
+
+    def handler(request):
+        import json as _json
+        body = _json.loads(request.read())
+        items = _json.loads(body['input'])['items']
+        assert body['text']['format']['type'] == 'json_schema' and body['store'] is False
+        return httpx.Response(200, json={'output_text': _json.dumps({'items': [f'EN:{t}' for t in items]})})
+
+    _mock_speech(monkeypatch, handler)
+    index = client.post(f"/api/events/{ev['id']}/transcripts/fr/translate", headers=AUTH, json={'to': 'en'}).json()['transcripts']
+    assert {t['lang'] for t in index} == {'fr', 'en'} and next(t for t in index if t['lang'] == 'en')['translated_from'] == 'fr'
+    en = client.get(f"/api/events/{ev['id']}/transcripts/en", headers=AUTH).json()['segments']
+    assert en[0] == {'start': 0, 'end': 1500, 'text': 'EN:Bonjour à tous.', 'speaker': 'Pasteur'}
+    listed = client.get('/api/events', headers=AUTH).json()['events'][0]
+    assert listed['archive'] and len(listed['transcripts']) == 2
+    client.delete(f"/api/events/{ev['id']}/transcripts/en", headers=AUTH)
+    assert [t['lang'] for t in client.get(f"/api/events/{ev['id']}/transcripts", headers=AUTH).json()['transcripts']] == ['fr']
+    client.delete(f"/api/events/{ev['id']}", headers=AUTH)
+    assert server.STORE.get(f"tx:{ev['id']}:fr") is None
+
+
+def test_api_keys_authorize_and_revoke(client):
+    created = client.post('/api/keys', headers=AUTH, json={'name': 'Site BMH'}).json()
+    key = created['key']
+    assert key.startswith('tbk_') and created['last4'] == key[-4:] and 'hash' not in created
+    assert client.get('/api/events', headers={'Authorization': 'Bearer ' + key}).status_code == 200
+    assert client.post('/api/keys', headers={'Authorization': 'Bearer ' + key}, json={'name': 'x'}).status_code == 403
+    assert client.get('/api/events/' + event(client)['id'], headers={'Authorization': 'Bearer ' + key}).status_code == 200
+    assert 'hash' not in client.get('/api/keys', headers=AUTH).json()['keys'][0]
+    client.delete(f"/api/keys/{created['id']}", headers=AUTH)
+    assert client.get('/api/events', headers={'Authorization': 'Bearer ' + key}).status_code == 401
+    assert client.get('/api/events', headers={'Authorization': 'Bearer tbk_forged'}).status_code == 401
+
+
+def test_webhook_relay_blocks_internal_addresses(client, monkeypatch):
+    sent = []
+    _mock_speech(monkeypatch, lambda request: (sent.append(request.read()), httpx.Response(204))[1])
+    for bad in ['http://example.com/hook', 'https://127.0.0.1/hook', 'https://localhost/hook', 'https://10.0.0.5/x', 'https://169.254.169.254/latest']:
+        assert client.post('/api/caption-relay', headers=AUTH, json={'provider': 'webhook', 'url': bad, 'text': 'x'}).status_code == 400, bad
+    monkeypatch.setattr(server.socket, 'getaddrinfo', lambda *a, **k: [(2, 1, 6, '', ('93.184.216.34', 443))])
+    ok = client.post('/api/caption-relay', headers=AUTH, json={'provider': 'webhook', 'url': 'https://hooks.example.org/tb', 'text': 'Bonjour', 'lang': 'fr-FR', 'seq': 3}).json()
+    assert ok == {'ok': True, 'status': 204}
+    import json as _json
+    payload = _json.loads(sent[-1])
+    assert payload['text'] == 'Bonjour' and payload['seq'] == 3 and payload['type'] == 'caption'
+
+
+def test_peak_listeners_recorded(client):
+    ev = event(client)
+    with client.websocket_connect(f"/api/ws/{ev['id']}") as a, client.websocket_connect(f"/api/ws/{ev['id']}") as b:
+        a.send_json({}); b.send_json({}); a.receive_json(); b.receive_json()
+    assert client.get('/api/events', headers=AUTH).json()['events'][0]['peak_listeners'] == 2
+
+
+def test_deleting_event_removes_archive_and_index(client):
+    ev = client.post('/api/events', headers=AUTH, json={'archive_transcripts': True}).json()
+    other = client.post('/api/events', headers=AUTH, json={'archive_transcripts': True}).json()
+    seg = {'segments': [{'start': 0, 'end': 900, 'text': 'Hi', 'speaker': 'Ana'}]}
+    for e in (ev, other):
+        assert client.put(f"/api/events/{e['id']}/transcripts/en", headers=AUTH, json=seg).status_code == 200
+    assert client.get(f"/api/events/{ev['id']}", headers=AUTH).json()['archive'] is True
+    assert client.delete(f"/api/events/{ev['id']}", headers=AUTH).status_code == 200
+    assert server.STORE.get(f"txindex:{ev['id']}") is None and server.STORE.get(f"tx:{ev['id']}:en") is None
+    assert client.get(f"/api/events/{other['id']}/transcripts/en", headers=AUTH).json()['segments'][0]['speaker'] == 'Ana'

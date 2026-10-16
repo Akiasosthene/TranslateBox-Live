@@ -25,7 +25,9 @@ export const SettingsDialog = () => {
     MODES, modeKey, setModeKey, customInstructions, setCustomInstructions,
     profile, setProfile, active, saveTranscripts, setSaveTranscripts,
     sourceText, targetText, targetLang, autoStopMinutes, setAutoStopMinutes,
+    idleStopMinutes, setIdleStopMinutes, pttKey, setPttKey,
   } = useTranslationSession();
+  const [capturing, setCapturing] = React.useState(false);
   const set = (k) => (v) => setProfile((p) => ({ ...p, [k]: v }));
 
   const buildText = () => {
@@ -126,6 +128,19 @@ export const SettingsDialog = () => {
             <input id="autostop" data-testid="autostop-input" type="number" min="0" max="600" step="5" value={autoStopMinutes || 0} onChange={(e) => setAutoStopMinutes(Math.max(0, Math.min(600, Number(e.target.value) || 0)))}
               className="w-24 h-10 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm" />
             <span className="text-sm text-slate-500">{t("minutes after the broadcast starts (0 = off)")}</span>
+          </div>
+          <label htmlFor="idlestop" className="block pt-2 text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">{t("Stop on silence")}</label>
+          <div className="flex items-center gap-2">
+            <input id="idlestop" data-testid="idlestop-input" type="number" min="0" max="120" step="1" value={idleStopMinutes || 0} onChange={(e) => setIdleStopMinutes(Math.max(0, Math.min(120, Number(e.target.value) || 0)))}
+              className="w-24 h-10 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm" />
+            <span className="text-sm text-slate-500">{t("minutes without speech (0 = off)")}</span>
+          </div>
+          <p className="pt-2 text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">{t("Push-to-talk key")}</p>
+          <div className="flex items-center gap-2">
+            <button type="button" data-testid="ptt-key-button" onClick={() => setCapturing(true)}
+              onKeyDown={(e) => { if (!capturing) return; e.preventDefault(); if (e.code !== "Escape" && e.code !== "Tab") setPttKey(e.code); setCapturing(false); }}
+              className="h-10 min-w-24 rounded-lg border border-slate-300 dark:border-slate-700 px-3 text-sm font-mono">{capturing ? t("Press a key…") : pttKey.replace(/^Key|^Digit/, "")}</button>
+            <span className="text-sm text-slate-500">{t("Click, then press the key to hold while speaking.")}</span>
           </div>
         </div>
 

@@ -14,10 +14,10 @@ export class SegmentRecorder {
     this.current = null;
   }
   begin() { if (this.t0 === null) this.t0 = this.now(); }
-  delta(text) {
+  delta(text, speaker = null) {
     if (!text) return;
     this.begin();
-    if (!this.current) this.current = { start: this.now() - this.t0, end: 0, text: "" };
+    if (!this.current) this.current = { start: this.now() - this.t0, end: 0, text: "", ...(speaker ? { speaker } : {}) };
     this.current.text += text;
     this.current.end = this.now() - this.t0;
   }
@@ -34,7 +34,9 @@ export class SegmentRecorder {
     const live = this.current?.text.trim() ? [{ ...this.current, text: this.current.text.trim() }] : [];
     return [...this.segments, ...live];
   }
-  text() { return this.all().map((s) => s.text).join("\n\n"); }
+  text() { return withSpeakers(this.all()).map((s) => s.text).join("\n\n"); }
+  // Wall-clock time (ms) of the first word, for archives and timestamp offsets.
+  get startedAt() { return this.t0; }
   get empty() { return this.all().length === 0; }
 }
 
@@ -84,4 +86,30 @@ export function downloadText(filename, text, type = "text/plain") {
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const clock = (ms) => {
+  const t = Math.max(0, Math.floor(ms / 1000));
+  return `${pad(Math.floor(t / 3600))}:${pad(Math.floor(t / 60) % 60)}:${pad(t % 60)}`;
+};
+
+// Plain text with [hh:mm:ss] stamps; offsetMs shifts every stamp (e.g. to
+// match a recording that started earlier or later than the session).
+export function toTimedText(segments, { offsetMs = 0, speakers = true } = {}) {
+  let last = null;
+  return segments.map((s) => {
+    const who = speakers && s.speaker && s.speaker !== last ? `${s.speaker}: ` : "";
+    if (s.speaker) last = s.speaker;
+    return `[${clock(s.start + offsetMs)}] ${who}${s.text}`;
+  }).join("\n\n");
+}
+
+// Speaker labels inline, for TXT exports and summaries.
+export function withSpeakers(segments) {
+  let last = null;
+  return segments.map((s) => {
+    const label = s.speaker && s.speaker !== last ? `${s.speaker}: ` : "";
+    if (s.speaker) last = s.speaker;
+    return { ...s, text: label + s.text };
+  });
 }
