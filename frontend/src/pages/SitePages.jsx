@@ -46,7 +46,7 @@ export function ProductPage() {
   if (!p) return <Navigate to="/produits" replace />;
   return (
     <SiteLayout>
-      <PageHero crumbs={[["/", "TranslateBox"], ["/produits", nav.products], [null, p.name]]} title={p.title} lead={p.lead} image={p.image} />
+      <PageHero crumbs={[["/", "Syntonia Live"], ["/produits", nav.products], [null, p.name]]} title={p.title} lead={p.lead} image={p.image} />
       <section className="ts-section soft"><div className="ts-wrap"><h2 className="ts-h2">{c.how}</h2><div className="ts-steps">{p.steps.map(([t, d]) => <article key={t}><h3>{t}</h3><p>{d}</p></article>)}</div></div></section>
       <section className="ts-section"><div className="ts-wrap"><h2 className="ts-h2">{c.features}</h2><div className="ts-feats">{p.features.map(([t, d]) => <div key={t}><CircleCheck size={20} /><span><b>{t}</b><p>{d}</p></span></div>)}</div></div></section>
       <section className="ts-section soft"><div className="ts-wrap"><h2 className="ts-h2 ts-center">{c.faq}</h2><Faq items={p.faq} /></div></section>
@@ -93,7 +93,7 @@ export function UseCasePage() {
   const picks = (UC_PRODUCTS[slug] || []).map((s) => products.find((p) => p.slug === s)).filter(Boolean);
   return (
     <SiteLayout>
-      <PageHero crumbs={[["/", "TranslateBox"], ["/cas-usage", nav.usecases], [null, u.name]]} eyebrow={u.name} title={u.title} lead={u.lead} image={slug === "formations" || slug === "accueil-du-public" ? "captions" : "screen"} />
+      <PageHero crumbs={[["/", "Syntonia Live"], ["/cas-usage", nav.usecases], [null, u.name]]} eyebrow={u.name} title={u.title} lead={u.lead} image={slug === "formations" || slug === "accueil-du-public" ? "captions" : "screen"} />
       <section className="ts-section soft"><div className="ts-wrap"><h2 className="ts-h2">{c.needs}</h2><div className="ts-needs">{u.needs.map(([t, d]) => <article key={t}><h3>{t}</h3><p>{d}</p></article>)}</div>
         <div className="ts-chips" style={{ marginTop: 30 }}>{u.points.map((x) => <span key={x}><CircleCheck size={16} />{x}</span>)}</div></div></section>
       <section className="ts-section"><div className="ts-wrap"><h2 className="ts-h2">{c.included}</h2><div className="ts-tiles">{picks.map((p) => <Tile key={p.slug} p={p} />)}</div></div></section>

@@ -1,6 +1,6 @@
 {
   "appId": "org.translatebox.live",
-  "appName": "TranslateBox",
+  "appName": "Syntonia",
   "webDir": "../frontend/dist",
   "backgroundColor": "#0A0D14",
   "android": { "allowMixedContent": false },

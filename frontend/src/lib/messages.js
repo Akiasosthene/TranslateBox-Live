@@ -1177,13 +1177,13 @@ export const messages = {
     "en": "Debug Console",
     "fr": "Diagnostics"
   },
-  "TranslateBox Live — realtime diagnostics": {
-    "en": "TranslateBox Live — realtime diagnostics",
-    "fr": "TranslateBox Live — diagnostics en direct"
+  "Syntonia Live — realtime diagnostics": {
+    "en": "Syntonia Live — realtime diagnostics",
+    "fr": "Syntonia Live — diagnostics en direct"
   },
-  "TranslateBox Live — diagnostics en direct": {
-    "en": "TranslateBox Live — realtime diagnostics",
-    "fr": "TranslateBox Live — diagnostics en direct"
+  "Syntonia Live — diagnostics en direct": {
+    "en": "Syntonia Live — realtime diagnostics",
+    "fr": "Syntonia Live — diagnostics en direct"
   },
   "Session Active": {
     "en": "Session Active",
@@ -1589,7 +1589,7 @@ export const messages = {
 "Captions": {"en": "Captions", "fr": "Sous-titres"},
 "AI-generated voice": {"en": "AI-generated voice", "fr": "Voix générée par IA"},
 "On iPhone, turn up the media volume. Keep this page open during the event.": {"en": "On iPhone, turn up the media volume. Keep this page open during the event.", "fr": "Sur iPhone, montez le volume multimédia. Gardez cette page ouverte pendant l’événement."},
-"This event uses an older broadcast format. Ask the organizer to update TranslateBox.": {"en": "This event uses an older broadcast format. Ask the organizer to update TranslateBox.", "fr": "Cet événement utilise un ancien format de diffusion. Demandez à l’organisateur de mettre à jour TranslateBox."},
+"This event uses an older broadcast format. Ask the organizer to update Syntonia Live.": {"en": "This event uses an older broadcast format. Ask the organizer to update Syntonia Live.", "fr": "Cet événement utilise un ancien format de diffusion. Demandez à l’organisateur de mettre à jour Syntonia Live."},
 "This browser does not support live audio playback (AudioWorklet). Update the browser and try again.": {"en": "This browser does not support live audio playback (AudioWorklet). Update the browser and try again.", "fr": "Ce navigateur ne permet pas la lecture audio en direct (AudioWorklet). Mettez-le à jour et réessayez."},
 "Unable to initialize audio playback.": {"en": "Unable to initialize audio playback.", "fr": "Impossible d’initialiser la lecture audio."},
 "Listener languages": {"en": "Listener languages", "fr": "Langues pour le public"},
@@ -1701,7 +1701,7 @@ export const messages = {
 "Sign in with": {"en": "Sign in with", "fr": "Se connecter avec"},
 "Sign-in expired. Try again.": {"en": "Sign-in expired. Try again.", "fr": "Connexion expirée. Réessayez."},
 "Sign-in was cancelled or expired. Try again.": {"en": "Sign-in was cancelled or expired. Try again.", "fr": "Connexion annulée ou expirée. Réessayez."},
-"This account is not allowed to operate TranslateBox.": {"en": "This account is not allowed to operate TranslateBox.", "fr": "Ce compte n’est pas autorisé à piloter TranslateBox."},
+"This account is not allowed to operate Syntonia Live.": {"en": "This account is not allowed to operate Syntonia Live.", "fr": "Ce compte n’est pas autorisé à piloter Syntonia Live."},
 "Sign-in provider unreachable.": {"en": "Sign-in provider unreachable.", "fr": "Fournisseur de connexion injoignable."},
 "Sign-in failed. Try again.": {"en": "Sign-in failed. Try again.", "fr": "Échec de la connexion. Réessayez."},
 "Keep transcripts on the server": {"en": "Keep transcripts on the server", "fr": "Conserver les transcriptions sur le serveur"},
@@ -1886,7 +1886,7 @@ export const messages = {
 "Several languages at once": {"en": "Several languages at once", "fr": "Plusieurs langues à la fois"},
 "Up to five languages per session, with AI voices or your own human interpreters.": {"en": "Up to five languages per session, with AI voices or your own human interpreters.", "fr": "Jusqu’à cinq langues par session, avec des voix IA ou vos interprètes humains."},
 "Zoom, Teams, Webex, OBS": {"en": "Zoom, Teams, Webex, OBS", "fr": "Zoom, Teams, Webex, OBS"},
-"Send a meeting or a stream to TranslateBox, and captions back to Zoom and Teams.": {"en": "Send a meeting or a stream to TranslateBox, and captions back to Zoom and Teams.", "fr": "Envoyez une réunion ou un flux à TranslateBox, et les sous-titres vers Zoom et Teams."},
+"Send a meeting or a stream to Syntonia Live, and captions back to Zoom and Teams.": {"en": "Send a meeting or a stream to Syntonia Live, and captions back to Zoom and Teams.", "fr": "Envoyez une réunion ou un flux à Syntonia Live, et les sous-titres vers Zoom et Teams."},
 "Transcripts and summaries": {"en": "Transcripts and summaries", "fr": "Transcriptions et résumés"},
 "Timed transcripts, subtitles (SRT, VTT), translation afterwards and AI summaries.": {"en": "Timed transcripts, subtitles (SRT, VTT), translation afterwards and AI summaries.", "fr": "Transcriptions horodatées, sous-titres (SRT, VTT), traduction après coup et résumés IA."},
 "Team and minutes": {"en": "Team and minutes", "fr": "Équipe et minutes"},
