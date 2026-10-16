@@ -95,3 +95,4 @@
 /* Syntonia wordmark */
 .tb-brand { letter-spacing:-.6px; }
 .tb-brand > svg { color:inherit; }
+.tb-live { font-size:.52em; font-weight:800; letter-spacing:2px; text-transform:uppercase; margin-left:6px; vertical-align:.5em; }
