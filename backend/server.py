@@ -1555,6 +1555,60 @@ async def _run_ingest(websocket: WebSocket, eid: str):
 
 
 # ---------------------------------------------------------------------------
+# Website demo requests ("Book a demo"), visible to administrators in the portal
+# ---------------------------------------------------------------------------
+class ContactRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=3, max_length=200)
+    organization: str = Field(default="", max_length=160)
+    kind: str = Field(default="", max_length=80)
+    size: str = Field(default="", max_length=40)
+    languages: str = Field(default="", max_length=200)
+    message: str = Field(default="", max_length=3000)
+    lang: str = Field(default="en", max_length=5)
+    website: str = Field(default="", max_length=200)  # honeypot
+
+
+@api_router.post("/contact")
+async def contact(body: ContactRequest, request: Request):
+    if _rate_limited("contact:" + _client_ip(request), 5):
+        raise HTTPException(429, "Too many requests. Try again in a minute.")
+    if body.website.strip():
+        return {"ok": True}  # bot: pretend success, store nothing
+    if not EMAIL_RE.match(body.email.strip().lower()):
+        raise HTTPException(400, "Enter a valid email address.")
+    leads = list(STORE.get("leads", []) or [])
+    leads.append({"id": secrets.token_hex(6), "created": time.time(), "status": "new",
+                  **{k: v.strip() for k, v in body.model_dump().items() if k != "website"}})
+    STORE.set("leads", leads[-2000:])
+    logger.info("New demo request")
+    return {"ok": True}
+
+
+@api_router.get("/leads")
+async def list_leads(principal: dict = Depends(require_admin)):
+    return {"leads": list(reversed(STORE.get("leads", []) or []))}
+
+
+class LeadUpdate(BaseModel):
+    status: Literal["new", "contacted", "done"]
+
+
+@api_router.patch("/leads/{lead_id}")
+async def update_lead(lead_id: str, body: LeadUpdate, principal: dict = Depends(require_admin)):
+    leads = [{**l, "status": body.status} if l["id"] == lead_id else l for l in STORE.get("leads", []) or []]
+    STORE.set("leads", leads)
+    return {"leads": list(reversed(leads))}
+
+
+@api_router.delete("/leads/{lead_id}")
+async def delete_lead(lead_id: str, principal: dict = Depends(require_admin)):
+    leads = [l for l in STORE.get("leads", []) or [] if l["id"] != lead_id]
+    STORE.set("leads", leads)
+    return {"leads": list(reversed(leads))}
+
+
+# ---------------------------------------------------------------------------
 # Server-side engines: cascade languages and console-free stream translation
 # ---------------------------------------------------------------------------
 SERVER_SESSIONS = {}   # eid -> live_engine.ServerSession

@@ -1,81 +1,157 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, AudioLines, Headphones, Languages, Radio, Captions, MonitorSmartphone, FileText, Users, Video, Sparkles, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check, Plus, Headphones, Captions, Monitor, UserRound, FileText, Sparkles, AudioLines, Server, MicOff, Archive, ShieldCheck } from "lucide-react";
+import { SiteLayout, useCopy } from "../site/SiteLayout";
+import { LiveStage } from "../site/LiveStage";
+import { HOME, SOLUTIONS } from "../site/content";
+import { TARGET_LANGUAGES, CASCADE_LANGUAGES } from "../lib/languages";
 import { useLocale } from "../context/LocaleContext";
-import { BrandLogo } from "../components/BrandLogo";
-import { InterfaceLanguage } from "../components/InterfaceLanguage";
 
-const FEATURES = [
-  [Headphones, "Translated audio", "Each listener hears the speaker in their language, on their own phone, with headphones."],
-  [Captions, "Live captions", "Large, high-contrast captions on phones, on the room screen and as a video overlay."],
-  [Languages, "Several languages at once", "Up to five languages per session, with AI voices or your own human interpreters."],
-  [Video, "Zoom, Teams, Webex, OBS", "Send a meeting or a stream to TranslateBox, and captions back to Zoom and Teams."],
-  [FileText, "Transcripts and summaries", "Timed transcripts, subtitles (SRT, VTT), translation afterwards and AI summaries."],
-  [Users, "Team and minutes", "Accounts with roles, two-factor sign-in, minutes per presenter and activity reports."],
-];
+const PRODUCT_ICONS = [Headphones, Captions, Monitor, UserRound, FileText, Sparkles, AudioLines];
+const SEC_ICONS = [Server, MicOff, Archive, ShieldCheck];
 
-// Public home page: attendees join with a code, organizers sign in.
-export default function Home() {
-  const { t } = useLocale();
+function JoinBox({ copy }) {
   const navigate = useNavigate();
   const [code, setCode] = useState("");
   const clean = code.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
-  const join = (e) => { e.preventDefault(); if (clean.length >= 4) navigate(`/join/${clean}`); };
   return (
-    <main className="tb-welcome">
-      <nav className="tb-nav" aria-label={t("Navigation principale")}>
-        <BrandLogo />
-        <span className="hidden md:flex items-center gap-6">
-          <a className="tb-nav-link" href="#features">{t("Features")}</a>
-          <a className="tb-nav-link" href="#fonctionnement">{t("Comment ça marche")}</a>
-          <Link className="tb-nav-link" to="/join">{t("Join a session")}</Link>
-        </span>
-        <InterfaceLanguage />
-        <Link className="tb-nav-cta" to="/login" data-testid="home-signin">{t("Espace opérateur")}<ArrowRight size={16} /></Link>
-      </nav>
-      <section className="tb-hero">
-        <div className="tb-intro">
-          <span className="tb-pill"><span />{t("La traduction qui rassemble")}</span>
-          <h1>{t("Une voix.")}<br /><em>{t("Plus de langues.")}</em><br />{t("Un même moment.")}</h1>
-          <p>{t("Conférences, enseignements, rencontres : partagez votre message et permettez à chacun de le suivre dans sa langue, depuis son téléphone.")}</p>
-          <Link className="tb-primary" to="/present">{t("Préparer une session")}<ArrowRight size={18} /></Link>
-          <div className="tb-benefits"><span><Headphones size={17} />{t("Audio traduit")}</span><span><Languages size={17} />{t("Sous-titres en direct")}</span><span><MonitorSmartphone size={17} />{t("No app to install")}</span></div>
-        </div>
-        <div className="tb-access-wrap">
-          <div className="tb-preview" aria-hidden="true">
-            <div className="tb-preview-top"><span className="tb-dots">● ● ●</span><span>{t("Votre message voyage")}</span><AudioLines size={18} /></div>
-            <div className="tb-language-path"><span>EN <small>{t("La voix source")}</small></span><ArrowRight /><span>FR <small>{t("La traduction")}</small></span></div>
-            <div className="tb-wave">{Array.from({ length: 32 }, (_, i) => <i key={i} style={{ height: `${12 + ((i * 17) % 43)}px` }} />)}</div>
+    <form className="ts-join" data-testid="home-join" onSubmit={(e) => { e.preventDefault(); if (clean.length >= 4) navigate(`/join/${clean}`); }}>
+      <input aria-label={copy.ctaJoin} value={clean.length > 4 ? `${clean.slice(0, 4)}-${clean.slice(4)}` : clean} onChange={(e) => setCode(e.target.value)} placeholder={copy.codePlaceholder} autoComplete="off" spellCheck={false} data-testid="home-code" />
+      <button className="ts-btn ts-btn-ghost" style={{ padding: "10px 16px" }} disabled={clean.length < 4}>{copy.ctaJoin}<ArrowRight size={16} /></button>
+    </form>
+  );
+}
+
+function Solutions() {
+  const sols = useCopy(SOLUTIONS);
+  const [active, setActive] = useState(0);
+  const s = sols[active];
+  return (
+    <div className="ts-sol">
+      <div className="ts-sol-tabs" role="tablist">
+        {sols.map((x, i) => <button key={x.slug} role="tab" aria-selected={i === active} onClick={() => setActive(i)}>{x.name}</button>)}
+      </div>
+      <div className="ts-sol-panel" key={s.slug} role="tabpanel">
+        <h3>{s.title}</h3>
+        <p>{s.text}</p>
+        <ul>{s.points.map((p) => <li key={p}><Check size={18} />{p}</li>)}</ul>
+        <Link className="ts-btn ts-btn-ink" to={`/solutions#${s.slug}`}>{s.name}<ArrowRight size={16} /></Link>
+      </div>
+    </div>
+  );
+}
+
+export default function Home() {
+  const c = useCopy(HOME);
+  const { language } = useLocale();
+  const fr = language === "fr";
+  const direct = TARGET_LANGUAGES.map((l) => l.native);
+  const more = CASCADE_LANGUAGES.map((l) => l.native);
+  const rowA = [...direct, ...more.slice(0, 14)];
+  const rowB = more.slice(14);
+  return (
+    <SiteLayout>
+      <section className="ts-hero ts-grain">
+        <div className="ts-wrap">
+          <div className="ts-hero-grid">
+            <div>
+              <span className="ts-kicker"><i />{c.kicker}</span>
+              <h1 className="ts-h1">{c.title.map((t) => <span key={t}>{t}</span>)}</h1>
+              <p className="ts-lead">{c.lead}</p>
+              <div className="ts-hero-ctas">
+                <Link className="ts-btn ts-btn-primary" to="/demo">{c.ctaDemo}<ArrowRight size={16} /></Link>
+                <JoinBox copy={c} />
+              </div>
+            </div>
+            <LiveStage speakerLabel={fr ? "Orateur · anglais" : "Speaker · English"} phoneLabel={fr ? "Votre téléphone" : "Your phone"} />
           </div>
-          <form onSubmit={join} className="tb-login" data-testid="home-join">
-            <span className="tb-eyebrow">{t("ATTENDEES")}</span>
-            <h2>{t("Join a session")}</h2>
-            <p>{t("Enter the code shown on the screen, or scan the QR code with your camera.")}</p>
-            <label htmlFor="home-code">{t("Session code")}</label>
-            <input id="home-code" value={clean.length > 4 ? `${clean.slice(0, 4)}-${clean.slice(4)}` : clean} onChange={(e) => setCode(e.target.value)} placeholder="ABCD-1234"
-              autoCapitalize="characters" autoComplete="off" spellCheck={false} className="!text-center !text-2xl !font-mono !tracking-[0.25em]" data-testid="home-code" />
-            <button className="tb-primary" disabled={clean.length < 4}>{t("Join")}<ArrowRight size={18} /></button>
-            <small><ShieldCheck size={15} />{t("No account needed · audio is not recorded")}</small>
-          </form>
+          <div className="ts-proof">{c.proof.map(([n, l]) => <div key={l}><b>{n}</b><span>{l}</span></div>)}</div>
         </div>
       </section>
 
-      <section id="features" className="tb-how">
-        <span className="tb-eyebrow">{t("EVERYTHING FOR MULTILINGUAL EVENTS")}</span>
-        <h2>{t("From the microphone to every language.")}</h2>
-        <div className="tb-step-grid tb-feature-grid">
-          {FEATURES.map(([Icon, title, text]) => <article key={title}><div><Icon size={24} /><Sparkles size={14} /></div><h3>{t(title)}</h3><p>{t(text)}</p></article>)}
+      <section className="ts-section" id="product">
+        <div className="ts-wrap ts-reveal">
+          <span className="ts-eyebrow">{c.lifecycleKicker}</span>
+          <h2 className="ts-h2">{c.lifecycleTitle}</h2>
+          <div className="ts-life">
+            {c.lifecycle.map((b) => (
+              <article key={b.tag}><span className="tag">{b.tag}</span><h3>{b.title}</h3><ul>{b.items.map((i) => <li key={i}><Check size={16} />{i}</li>)}</ul></article>
+            ))}
+          </div>
         </div>
       </section>
 
-      <section id="fonctionnement" className="tb-how">
-        <span className="tb-eyebrow">{t("SIMPLE, DU MICRO AU CASQUE")}</span>
-        <h2>{t("Votre événement, dans leur langue.")}</h2>
-        <div className="tb-step-grid">
-          {[[Radio, "01", t("Préparez votre direct"), t("Choisissez la source audio et la langue de traduction dans votre console.")], [Languages, "02", t("Partagez votre événement"), t("Créez une session et transmettez son lien ou son QR code aux participants.")], [Headphones, "03", t("Écoutez, tout simplement"), t("Les auditeurs ouvrent le lien sur leur téléphone et lancent l’écoute au casque.")]].map(([Icon, number, title, description]) => <article key={number}><div><Icon size={24} /><span>{number}</span></div><h3>{title}</h3><p>{description}</p></article>)}
+      <section className="ts-section dark ts-grain">
+        <div className="ts-wrap ts-reveal">
+          <span className="ts-eyebrow">TranslateBox</span>
+          <h2 className="ts-h2">{c.productsTitle}</h2>
+          <div className="ts-bento">
+            {c.products.map(([title, text], i) => { const Icon = PRODUCT_ICONS[i]; return <article key={title}><Icon /><h3>{title}</h3><p>{text}</p></article>; })}
+          </div>
         </div>
       </section>
-      <footer className="tb-footer"><strong>TranslateBox</strong><span>{t("Des voix différentes. Une expérience partagée.")}</span><Link to="/login" className="underline">{t("Espace opérateur")}</Link></footer>
-    </main>
+
+      <section className="ts-section">
+        <div className="ts-wrap ts-reveal">
+          <h2 className="ts-h2">{c.stepsTitle}</h2>
+          <div className="ts-steps">{c.steps.map(([title, text], i) => <article key={title}><b>{i + 1}</b><h3>{title}</h3><p>{text}</p></article>)}</div>
+        </div>
+      </section>
+
+      <section className="ts-section alt">
+        <div className="ts-wrap ts-reveal">
+          <span className="ts-eyebrow">{c.solutionsKicker}</span>
+          <h2 className="ts-h2">{c.solutionsTitle}</h2>
+          <Solutions />
+        </div>
+      </section>
+
+      <section className="ts-section" id="integrations">
+        <div className="ts-wrap ts-reveal">
+          <h2 className="ts-h2">{c.integrationsTitle}</h2>
+          <p className="ts-sub">{c.integrationsLead}</p>
+          <div className="ts-int">{c.integrations.map((x) => <span key={x}>{x}</span>)}</div>
+        </div>
+      </section>
+
+      <section className="ts-section dark ts-grain" id="languages">
+        <div className="ts-wrap ts-reveal">
+          <h2 className="ts-h2">{c.languagesTitle}</h2>
+          <p className="ts-sub">{c.languagesLead}</p>
+        </div>
+        <div className="ts-marquee" aria-hidden="true">
+          <div className="ts-marquee-row">{[...rowA, ...rowA].map((n, i) => <span key={i} className={direct.includes(n) ? "direct" : ""}>{n}</span>)}</div>
+          <div className="ts-marquee-row rev">{[...rowB, ...rowB].map((n, i) => <span key={i}>{n}</span>)}</div>
+        </div>
+        <div className="ts-wrap ts-legend"><span><i className="direct" />{fr ? "Interprétation directe" : "Direct interpretation"}</span><span><i />{fr ? "Texte + voix studio" : "Text + studio voice"}</span></div>
+      </section>
+
+      <section className="ts-section" id="security">
+        <div className="ts-wrap ts-reveal">
+          <h2 className="ts-h2">{c.securityTitle}</h2>
+          <div className="ts-sec">{c.security.map(([title, text], i) => { const Icon = SEC_ICONS[i]; return <article key={title}><Icon /><h3>{title}</h3><p>{text}</p></article>; })}</div>
+          <p style={{ marginTop: 22 }}><Link to="/securite" style={{ fontWeight: 700, color: "#1f8fc9" }}>{fr ? "Tout sur la sécurité" : "Security in detail"} →</Link></p>
+        </div>
+      </section>
+
+      <section className="ts-section alt" id="faq">
+        <div className="ts-wrap ts-reveal">
+          <h2 className="ts-h2">{c.faqTitle}</h2>
+          <div className="ts-faq">{c.faq.map(([q, a]) => <details key={q}><summary>{q}<Plus /></summary><p>{a}</p></details>)}</div>
+        </div>
+      </section>
+
+      <section className="ts-section">
+        <div className="ts-wrap ts-reveal">
+          <div className="ts-cta ts-grain">
+            <div><h2>{c.ctaTitle}</h2><p>{c.ctaLead}</p></div>
+            <div className="ts-cta-side">
+              <Link className="ts-btn ts-btn-primary" to="/demo">{c.ctaDemo}<ArrowRight size={16} /></Link>
+              <Link className="ts-btn ts-btn-ghost" to="/login">{fr ? "Espace organisateur" : "Organizer sign-in"}</Link>
+            </div>
+          </div>
+        </div>
+      </section>
+    </SiteLayout>
   );
 }

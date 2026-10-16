@@ -3,7 +3,7 @@ import { InterfaceLanguage } from './InterfaceLanguage';
 import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Sun, Moon, Download, Bug, LogOut, Radio, CalendarClock, FileText, BarChart3, Users, UserRound } from "lucide-react";
+import { Sun, Moon, Download, Bug, LogOut, Radio, CalendarClock, FileText, BarChart3, Users, UserRound, Inbox } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import { isAdmin, ROLE_LABEL } from "../lib/auth";
@@ -14,6 +14,7 @@ const NAV = [
   ["/portal/transcripts", "Transcripts", FileText, false],
   ["/portal/activity", "Activity", BarChart3, false],
   ["/portal/users", "Users", Users, true],
+  ["/portal/requests", "Requests", Inbox, true],
   ["/portal/account", "Account", UserRound, false],
 ];
 

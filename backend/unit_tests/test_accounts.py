@@ -19,6 +19,7 @@ def reset(monkeypatch):
     server._rate_buckets.clear()
     server.STORE.set('apikeys', [])
     server.STORE.set('users', [])
+    server.STORE.set('leads', [])
 
 
 @pytest.fixture
@@ -164,3 +165,17 @@ def test_directory_lists_colleagues_with_balances(client):
     make_user(client)  # unlimited: not a transfer target
     ids = [u['id'] for u in client.get('/api/directory', headers=alice_h).json()['users']]
     assert ids == [bob['id']]
+
+
+def test_demo_requests_public_submit_admin_read(client):
+    ok = client.post('/api/contact', json={'name': 'Ana', 'email': 'ana@example.org', 'organization': 'Église', 'message': 'Hello'})
+    assert ok.status_code == 200
+    assert client.post('/api/contact', json={'name': 'Bot', 'email': 'bot@example.org', 'website': 'spam.example'}).json() == {'ok': True}
+    assert client.post('/api/contact', json={'name': 'x', 'email': 'nope'}).status_code == 400
+    assert client.get('/api/leads').status_code == 401
+    _, pres_h, _ = make_user(client)
+    assert client.get('/api/leads', headers=pres_h).status_code == 403
+    leads = client.get('/api/leads', headers=AUTH).json()['leads']
+    assert [l['name'] for l in leads] == ['Ana'] and 'website' not in leads[0]
+    assert client.patch(f"/api/leads/{leads[0]['id']}", headers=AUTH, json={'status': 'contacted'}).json()['leads'][0]['status'] == 'contacted'
+    assert client.delete(f"/api/leads/{leads[0]['id']}", headers=AUTH).json()['leads'] == []

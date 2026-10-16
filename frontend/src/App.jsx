@@ -17,6 +17,9 @@ const Join = lazy(() => import("@/pages/Join"));
 const Portal = lazy(() => import("@/pages/Portal"));
 const Home = lazy(() => import("@/pages/Home"));
 const Login = lazy(() => import("@/pages/Login"));
+const Solutions = lazy(() => import("@/pages/Solutions"));
+const Security = lazy(() => import("@/pages/Security"));
+const Demo = lazy(() => import("@/pages/Demo"));
 const Loading = () => <div className="min-h-screen bg-[#0A0D14]" aria-busy="true" />;
 
 function App() {
@@ -32,6 +35,10 @@ function App() {
             <Route path="/join/:code" element={<Join />} />
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/solutions" element={<Solutions />} />
+            <Route path="/securite" element={<Security />} />
+            <Route path="/security" element={<Security />} />
+            <Route path="/demo" element={<Demo />} />
             <Route element={<OperatorShell />}>
               <Route path="/present" element={<Console />} />
               <Route path="/portal" element={<Portal />} />

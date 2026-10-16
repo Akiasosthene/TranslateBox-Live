@@ -1972,4 +1972,12 @@ export const messages = {
 "Gujarati": {"en": "Gujarati", "fr": "Goudjarati"},
 "Kannada": {"en": "Kannada", "fr": "Kannada"},
 "Malayalam": {"en": "Malayalam", "fr": "Malayalam"},
+"Requests sent from “Book a demo” on the website.": {"en": "Requests sent from “Book a demo” on the website.", "fr": "Demandes envoyées depuis « Demander une démo » sur le site."},
+"No request yet.": {"en": "No request yet.", "fr": "Aucune demande pour l’instant."},
+"New": {"en": "New", "fr": "Nouvelle"},
+"Contacted": {"en": "Contacted", "fr": "Contactée"},
+"Delete this request?": {"en": "Delete this request?", "fr": "Supprimer cette demande ?"},
+"Demo requests": {"en": "Demo requests", "fr": "Demandes de démo"},
+"Requests": {"en": "Requests", "fr": "Demandes"},
+"Could not load the requests.": {"en": "Could not load the requests.", "fr": "Impossible de charger les demandes."},
 };

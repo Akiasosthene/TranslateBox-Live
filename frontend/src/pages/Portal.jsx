@@ -8,6 +8,7 @@ import { API, operatorFetch, responseError } from "../lib/api";
 import { TARGET_LANGUAGES, getTarget } from "../lib/languages";
 import { csvObjects, toCSV } from "../lib/csv";
 import { UsersAdmin, AccountPage } from "./portal/Accounts";
+import { LeadsAdmin } from "./portal/Leads";
 import { useAuth } from "../context/AuthContext";
 import { isAdmin } from "../lib/auth";
 import { toSRT, toVTT, toTimedText, withSpeakers, downloadText } from "../lib/transcript";
@@ -15,7 +16,7 @@ import { toSRT, toVTT, toTimedText, withSpeakers, downloadText } from "../lib/tr
 const card = "rounded-2xl bg-white/80 dark:bg-[#121824]/70 border border-slate-200/70 dark:border-white/10 p-4 md:p-5";
 const btn = "h-9 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1.5 disabled:opacity-40";
 const input = "h-10 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm";
-const TITLES = { sessions: "Sessions", transcripts: "Transcripts", activity: "Activity", users: "Users", account: "Account" };
+const TITLES = { sessions: "Sessions", transcripts: "Transcripts", activity: "Activity", users: "Users", requests: "Demo requests", account: "Account" };
 
 async function call(path, options, fallback) {
   const res = await operatorFetch(`${API}${path}`, options);
@@ -39,7 +40,7 @@ export default function Portal() {
   const { t } = useLocale();
   const { tab: tabParam } = useParams();
   const { me } = useAuth();
-  const tab = TITLES[tabParam] && (tabParam !== "users" || isAdmin(me)) ? tabParam : "sessions";
+  const tab = TITLES[tabParam] && (!["users", "requests"].includes(tabParam) || isAdmin(me)) ? tabParam : "sessions";
   const [events, setEvents] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -67,6 +68,7 @@ export default function Portal() {
         {tab === "transcripts" && <Transcripts events={events} refresh={refresh} setError={setError} />}
         {tab === "activity" && <Activity events={events} setError={setError} />}
         {tab === "users" && <UsersAdmin setError={setError} />}
+        {tab === "requests" && <LeadsAdmin setError={setError} />}
         {tab === "account" && <AccountPage setError={setError} keys={<ApiKeys setError={setError} />} />}
       </main>
     </div>
