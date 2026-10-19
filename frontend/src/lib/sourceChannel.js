@@ -19,7 +19,7 @@ export class SourceChannel {
     src.connect(this.gain);
     const b = new OperatorBroadcaster(`${WS_BASE}/api/ws/${event.id}?role=operator&lang=src`, {
       token: event.operator_token,
-      onStatus: (s) => { if (s.error) this.onError("Interpreter booth feed: " + s.error); },
+      onStatus: (s) => { if (s.error && !s.reconnecting) this.onError("Interpreter booth feed: " + s.error); },
     });
     this.broadcaster = b;
     await b.start({ ctx: this.ctx, output: this.gain });

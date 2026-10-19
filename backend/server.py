@@ -95,7 +95,9 @@ SUPPORTED_OUTPUT_LANGUAGES = {
 # Abuse controls for operator sessions and public listener connections.
 MAX_INSTRUCTIONS_LEN = int(os.environ.get("MAX_INSTRUCTIONS_LEN", "6000"))
 MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", "32768"))  # 32 KB
-RATE_LIMIT_MAX = int(os.environ.get("SESSION_RATE_LIMIT_MAX", "20"))
+# Each language opens its own session and all of them reconnect together after
+# a network drop, so the per-IP budget must cover 5 languages retrying.
+RATE_LIMIT_MAX = int(os.environ.get("SESSION_RATE_LIMIT_MAX", "90"))
 RATE_LIMIT_WINDOW = int(os.environ.get("SESSION_RATE_LIMIT_WINDOW", "60"))  # seconds
 _rate_buckets = defaultdict(deque)
 

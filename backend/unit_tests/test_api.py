@@ -101,8 +101,9 @@ def test_network_error_is_generic(client, monkeypatch):
 
 def test_rate_limit_cannot_be_spoofed(client, monkeypatch):
     monkeypatch.setattr(server, '_mint_session', AsyncMock(return_value=(httpx.Response(200, json={'value': 'ek_test'}), False)))
-    codes = [client.post('/api/realtime-session', json={}, headers={**AUTH, 'X-Forwarded-For': f'10.0.0.{i}'}).status_code for i in range(21)]
-    assert codes == [200] * 20 + [429]
+    limit = server.RATE_LIMIT_MAX
+    codes = [client.post('/api/realtime-session', json={}, headers={**AUTH, 'X-Forwarded-For': f'10.0.{i // 250}.{i % 250}'}).status_code for i in range(limit + 1)]
+    assert codes == [200] * limit + [429]
 
 
 def test_event_secret_not_public_and_ttl(client, monkeypatch):

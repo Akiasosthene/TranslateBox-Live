@@ -2,7 +2,10 @@ import { getStreamInput } from "./streamInput";
 import { operatorHeaders } from "./api";
 import { ProgramBus } from "./programBus";
 const OPENAI_CALLS_URL = "https://api.openai.com/v1/realtime/translations/calls";
-const MAX_RECONNECTS = 5;
+// Keep retrying while the operator has not pressed Stop: a live event must
+// survive Wi-Fi blips and the provider closing a long session.
+const MAX_RECONNECTS = Infinity;
+const isSessionEnd = (err) => /expire|maximum (session )?duration|session.*(ended|closed)|timeout/i.test(`${err?.code || ""} ${err?.message || ""}`);
 
 // Handles browser-to-OpenAI real-time translation over WebRTC.
 // The permanent API key stays on the server; this engine only ever sees the
@@ -252,7 +255,15 @@ export class TranslationEngine {
     const stream = await this._capture(this.deviceId, this.captureSource, this.ambient);
     if (!this.active || generation !== this._generation) { stream.getTracks().forEach(t => t.stop()); return; }
     this.localStream = stream;
-    stream.getAudioTracks().forEach(t => { t.enabled = !this._inputMuted; });
+    stream.getAudioTracks().forEach(t => {
+      t.enabled = !this._inputMuted;
+      // Microphone taken by another app, unplugged, or the phone went to sleep.
+      t.onended = () => {
+        if (!this.active || this.localStream !== stream) return;
+        this.log("warn", "Input track ended, reconnecting the microphone");
+        this._handleDrop();
+      };
+    });
     this.setStatus({ mic: "active" });
     this.log("info", "Input stream acquired", { deviceId: this.deviceId, source: this.captureSource, ambient: this.ambient });
     this._startMeter(stream);
@@ -306,7 +317,14 @@ export class TranslationEngine {
     const dc = pc.createDataChannel("oai-events");
     this.dc = dc;
     dc.onopen = () => this.log("info", "Realtime data channel open");
-    dc.onclose = () => this.log("info", "Realtime data channel closed");
+    dc.onclose = () => {
+      this.log("info", "Realtime data channel closed");
+      // The provider ends long sessions by closing the channel: start a new one.
+      if (this.active && this.dc === dc && !this._reconnecting) {
+        this.reconnectAttempts = 0;
+        this._handleDrop();
+      }
+    };
     dc.onmessage = (e) => this._onEvent(e.data);
 
     const offer = await pc.createOffer();
@@ -422,6 +440,12 @@ export class TranslationEngine {
         break;
       case "error":
         this.log("error", "Realtime API error", ev.error || ev);
+        if (isSessionEnd(ev.error)) {
+          // Normal end of a long session: reconnect quietly.
+          this.reconnectAttempts = 0;
+          this._handleDrop();
+          break;
+        }
         this.h.onError?.(ev.error?.message || "Realtime API error");
         break;
       default:
@@ -444,11 +468,11 @@ export class TranslationEngine {
     const n = this.reconnectAttempts;
     this.setStatus({ openai: "connecting", reconnectCount: n });
     this.h.onMetrics?.({ reconnectCount: n });
-    this.log("warn", `Connection dropped — reconnect attempt ${n}/${MAX_RECONNECTS}`);
-    this.h.onError?.(`RECONNECTING… (${n}/${MAX_RECONNECTS})`);
+    this.log("warn", `Connection dropped, reconnect attempt ${n}`);
+    this.h.onError?.(`RECONNECTING… (${n})`);
     this._stopMeter();
     this._teardownPc();
-    await new Promise((r) => setTimeout(r, Math.min(1200 * n, 5000)));
+    await new Promise((r) => setTimeout(r, Math.min(1000 * n, 10000)));
     if (!this.active || generation !== this._generation) {
       this._reconnecting = false;
       return;

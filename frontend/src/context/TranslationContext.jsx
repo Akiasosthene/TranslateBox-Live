@@ -394,6 +394,28 @@ export function TranslationProvider({ children }) {
   }, [broadcast]);
   useEffect(() => { if (pttEnabled) setMicMuted(true); }, [pttEnabled, active]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep the presenter's screen awake while translating: on phones and tablets
+  // a sleeping screen suspends the page and cuts the microphone.
+  useEffect(() => {
+    const live = active || broadcast.broadcasting;
+    if (!live || !navigator.wakeLock) return undefined;
+    let lock = null;
+    let cancelled = false;
+    const acquire = async () => {
+      try {
+        if (document.visibilityState === "visible" && !lock) {
+          lock = await navigator.wakeLock.request("screen");
+          if (cancelled) { lock.release?.(); lock = null; return; }
+          lock.addEventListener?.("release", () => { lock = null; });
+        }
+      } catch { /* optional: some browsers refuse */ }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") acquire(); };
+    acquire();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVisible); lock?.release?.(); };
+  }, [active, broadcast.broadcasting]);
+
   // Automatic stop after a set duration protects the OpenAI budget.
   useEffect(() => {
     if (!autoStopMinutes || !broadcast.broadcasting || duration < autoStopMinutes * 60) return;

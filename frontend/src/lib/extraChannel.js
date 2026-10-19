@@ -85,7 +85,10 @@ export class ExtraChannel {
     const b = new OperatorBroadcaster(`${WS_BASE}/api/ws/${event.id}?role=operator&lang=${encodeURIComponent(this.lang)}`, {
       token: event.operator_token,
       onCount: (count) => { this.listeners = count; this._emit(); },
-      onStatus: (status) => { if (status.error) { this.onError(`${this.lang.toUpperCase()}: ${status.error}`); this._set("error"); } },
+      onStatus: (status) => {
+        if (status.reconnecting || status.reconnected) return; // retried quietly; the main channel shows the banner
+        if (status.error) { this.onError(`${this.lang.toUpperCase()}: ${status.error}`); this._set("error"); }
+      },
     });
     this.broadcaster = b;
     await b.start(this.engine.program);

@@ -147,7 +147,11 @@ export function useBroadcast({
     const b = new OperatorBroadcaster(url, {
       token: event.operator_token,
       onCount: (count, total) => { setPrimaryListeners(count); setListeners(total); },
-      onStatus: (status) => { setBroadcasting(false); setListeners(0); setPrimaryListeners(0); if (status.error) setError(status.error); },
+      onStatus: (status) => {
+        if (status.reconnecting) { setError(status.error); return; }
+        if (status.reconnected) { setError(null); return; }
+        setBroadcasting(false); setListeners(0); setPrimaryListeners(0); if (status.error) setError(status.error);
+      },
     });
     broadcasterRef.current?.stop();
     broadcasterRef.current = b;

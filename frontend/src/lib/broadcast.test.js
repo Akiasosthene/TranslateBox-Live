@@ -60,17 +60,19 @@ test('missing program audio is reported without opening a socket', async () => {
   expect(socket).toBe(null);
 });
 
-test('socket failure after startup reports an actionable stopped state', async () => {
+test('socket failure after startup keeps the broadcast and reconnects', async () => {
   const onStatus = vi.fn();
-  const broadcaster = new OperatorBroadcaster('ws://localhost/api/ws/event', {onStatus, createCapture});
+  const broadcaster = new OperatorBroadcaster('ws://localhost/api/ws/event', {onStatus, createCapture, retryDelays: [5000]});
   const pending = broadcaster.start(program);
   socket.onmessage({data: JSON.stringify({type: 'ready'})});
   await pending;
   await flush();
   socket.onerror();
-  expect(onStatus).toHaveBeenCalledWith({live: false, error: 'Broadcast connection failed'});
+  socket.onclose({code: 1006});
+  expect(onStatus).toHaveBeenLastCalledWith(expect.objectContaining({live: true, reconnecting: true}));
+  expect(broadcaster.capture).not.toBe(null);
+  broadcaster.stop();
   expect(broadcaster.capture).toBe(null);
-  expect(socket.close).toHaveBeenCalled();
 });
 
 test('voice metadata and captions are sent as JSON', async () => {
@@ -83,4 +85,39 @@ test('voice metadata and captions are sent as JSON', async () => {
   const sent = socket.send.mock.calls.map(c => c[0]).filter(x => typeof x === 'string').map(JSON.parse);
   expect(sent).toContainEqual({type: 'meta', mode: 'studio', voice: 'Marin'});
   expect(sent).toContainEqual({type: 'caption', text: 'Bonjour'});
+});
+
+test('reconnects automatically after an unexpected drop', async () => {
+  vi.useFakeTimers();
+  const statuses = [];
+  const broadcaster = new OperatorBroadcaster('ws://x', { createCapture, onStatus: (s) => statuses.push(s), retryDelays: [100] });
+  const pending = broadcaster.start(program);
+  socket.onmessage({ data: JSON.stringify({ type: 'ready' }) });
+  await pending;
+  const first = socket;
+  first.onclose({ code: 1006 });
+  expect(statuses.at(-1)).toMatchObject({ reconnecting: true, live: true });
+  vi.advanceTimersByTime(150);
+  expect(socket).not.toBe(first);
+  socket.onopen();
+  await socket.onmessage({ data: JSON.stringify({ type: 'ready' }) });
+  expect(statuses.at(-1)).toMatchObject({ live: true, reconnected: true });
+  expect(createCapture).toHaveBeenCalledTimes(1);
+  capture.onFrame(new ArrayBuffer(1280));
+  expect(socket.send).toHaveBeenLastCalledWith(expect.any(ArrayBuffer));
+  broadcaster.stop();
+  vi.useRealTimers();
+});
+
+test('out of minutes is final, no retry', async () => {
+  const statuses = [];
+  const broadcaster = new OperatorBroadcaster('ws://x', { createCapture, onStatus: (s) => statuses.push(s), retryDelays: [10] });
+  const pending = broadcaster.start(program);
+  socket.onmessage({ data: JSON.stringify({ type: 'ready' }) });
+  await pending;
+  const first = socket;
+  first.onclose({ code: 4402 });
+  await new Promise((r) => setTimeout(r, 30));
+  expect(socket).toBe(first);
+  expect(statuses.at(-1)).toMatchObject({ live: false, error: 'No translation minutes left on this account.' });
 });
