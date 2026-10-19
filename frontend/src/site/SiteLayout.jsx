@@ -75,6 +75,25 @@ export function SiteLayout({ children, title, description }) {
     window.scrollTo(0, 0);
   }, [location.pathname, location.hash]);
   useEffect(() => { document.documentElement.lang = language; }, [language]);
+  // Scroll reveal: elements with data-reveal fade up once when they enter.
+  useEffect(() => {
+    // Inner pages: cards reveal in a short stagger without per-page markup.
+    document.querySelectorAll(".ts :is(.ts-tile, .ts-seg, .ts-feats > div, .ts-fgroup, .ts-plan, .ts-how article, .ts-needs article, .ts-sec-grid article, .ts-page-img):not([data-reveal])").forEach((el) => {
+      el.setAttribute("data-reveal", "");
+      const i = Array.prototype.indexOf.call(el.parentElement?.children || [], el);
+      el.style.setProperty("--d", `${(i % 4) * 70}ms`);
+    });
+    const els = Array.from(document.querySelectorAll(".ts [data-reveal]:not(.is-in)"));
+    if (!("IntersectionObserver" in window) || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      els.forEach((el) => el.classList.add("is-in"));
+      return undefined;
+    }
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("is-in"); io.unobserve(e.target); } });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [location.pathname, language, children]);
   useEffect(() => {
     const full = title ? `${title} | Syntova` : "Syntova";
     document.title = full;
