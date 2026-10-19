@@ -8,7 +8,7 @@ import { SOURCE_LANGUAGES, TARGET_LANGUAGES } from "../../lib/languages";
 import { StreamSourcePanel } from "./StreamSourcePanel";
 
 // Language selection + audio input/output routing card (operator setup).
-export const AudioControlCard = () => {
+export const AudioControlCard = ({ hideLanguages = false }) => {
   const { t } = useLocale();
   const {
     active, sourceLang, setSourceLang, targetLang, setTargetLang,
@@ -21,6 +21,7 @@ export const AudioControlCard = () => {
 
   return (
     <section className="rounded-2xl bg-white/80 dark:bg-[#121824]/70 backdrop-blur-xl border border-slate-200/70 dark:border-white/10 shadow-lg shadow-black/5 dark:shadow-black/20 p-4 md:p-5 space-y-4">
+      {!hideLanguages && (
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1.4fr] gap-3 md:gap-4 items-start">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 font-mono">{t("Source")}</p>
@@ -33,6 +34,7 @@ export const AudioControlCard = () => {
           <LanguageCombobox options={TARGET_LANGUAGES} value={targetLang} onChange={setTargetLang} disabled={active} testId="target-language-select" />
         </div>
       </div>
+      )}
 
       <div className="space-y-2">
         <div role="radiogroup" aria-label={t("Audio source")} className="inline-flex rounded-xl border border-slate-300 dark:border-slate-700 p-1 gap-1" data-testid="capture-source">

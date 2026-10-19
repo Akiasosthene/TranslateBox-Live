@@ -3,7 +3,7 @@ import { InterfaceLanguage } from './InterfaceLanguage';
 import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Sun, Moon, Download, Bug, LogOut, Radio, CalendarClock, FileText, BarChart3, Users, UserRound, Inbox } from "lucide-react";
+import { Sun, Moon, Download, LogOut, Radio, CalendarClock, FileText, BarChart3, Users, UserRound, Inbox } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import { isAdmin, ROLE_LABEL } from "../lib/auth";
@@ -69,7 +69,6 @@ export const Header = () => {
           {deferredPrompt && !installed && (
             <button data-testid="pwa-install-button" onClick={install} className={iconBtn} title={t("Install app")}><Download className="h-5 w-5" /></button>
           )}
-          <Link data-testid="debug-nav-link" to="/debug" className={`${iconBtn} hidden md:inline-flex`} title={t("Debug console")}><Bug className="h-5 w-5" /></Link>
           <button data-testid="theme-toggle-button" onClick={toggle} className={iconBtn} title={t("Toggle theme")}>
             {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </button>

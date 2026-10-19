@@ -1,8 +1,10 @@
 import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { Radio, Users, QrCode as QrIcon, Play, Square, X, Monitor, Languages, UserRound, ImagePlus, Gauge } from "lucide-react";
-import { TARGET_LANGUAGES, CASCADE_LANGUAGES, getTarget, isCascade } from "../lib/languages";
+import { Link } from "react-router-dom";
+import { Users, Play, Square, X, UserRound, ImagePlus, Gauge, Mic, MicOff } from "lucide-react";
+import { LanguageCombobox } from "./LanguageCombobox";
+import { TARGET_LANGUAGES, SOURCE_LANGUAGES, CASCADE_LANGUAGES, getTarget, isCascade } from "../lib/languages";
 import { useTranslationSession } from "../context/TranslationContext";
 
 export const BroadcastPanel = () => {
@@ -13,6 +15,7 @@ export const BroadcastPanel = () => {
     listeners, broadcasting, active, captionsToListeners, setCaptionsToListeners, status, level, metrics,
     targetLang, extraLangs, setExtraLangs, channels, primaryListeners,
     humanLangs, setHumanLangs, rotateInterpreterCode, fetchUsage, cascadeLive,
+    sourceLang, setSourceLang, setTargetLang, duration, toggleInputMute, inputMuted,
   } = useTranslationSession();
   const [logo, setLogo] = useState("");
   const [sponsor, setSponsor] = useState("");
@@ -54,105 +57,124 @@ export const BroadcastPanel = () => {
   const doCreate = async () => { setBusy(true); setError(""); try { await createEvent({ name, organization: org, pin, logo, sponsor, archive }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
   const doStart = async () => { setBusy(true); setError(""); try { await startEvent({ name, organization: org, pin, logo, sponsor, archive }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
 
-  return (
-    <section className="rounded-2xl bg-white/80 dark:bg-[#121824]/70 backdrop-blur-xl border border-slate-200/70 dark:border-white/10 shadow-lg p-4 md:p-5 space-y-4" data-testid="broadcast-panel">
-      <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 text-sm font-bold tracking-widest uppercase text-slate-700 dark:text-slate-200 font-mono"><Radio className="h-4 w-4 text-emerald-500" />{t("Broadcast · Multi-listener")}</h2>
-        <span className="flex items-center gap-1.5 text-sm font-mono font-bold" data-testid="listeners-count"><Users className="h-4 w-4 text-cyan-500" /> {listeners} / {eventInfo?.max_listeners || 30}</span>
-      </div>
+  const fmt = (sec) => { const h = Math.floor(sec / 3600); const m = String(Math.floor((sec % 3600) / 60)).padStart(2, "0"); const x = String(sec % 60).padStart(2, "0"); return h ? `${h}:${m}:${x}` : `${m}:${x}`; };
+  const field = "h-11 w-full rounded-xl bg-slate-50 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm";
+  const TONES = {
+    emerald: "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    violet: "border-violet-500 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+    sky: "border-sky-500 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  };
+  const chip = (on, tone = "emerald") => `px-3 py-1.5 rounded-full border text-sm transition-colors disabled:opacity-40 ${on ? TONES[tone] : "border-slate-300 dark:border-slate-700 hover:border-slate-400"}`;
+  const soft = "text-sm font-semibold text-slate-600 dark:text-slate-300 underline-offset-4 hover:underline disabled:opacity-40";
 
-      <div className="rounded-lg border border-slate-300 dark:border-slate-700 p-3 text-sm space-y-1" data-testid="audio-route">
-        <p>{t("Microphone signal")}: {t(active && level.peak > 0.02 ? "Detected" : "Waiting")}</p>
-        <p>{t("Translated audio track")}: {t(active && ["active", "muted"].includes(status.outputAudio) ? "Received" : "Waiting")}</p>
-        <p>{t("Broadcast connection")}: {t(broadcasting ? "Connected" : "Stopped")} · {listeners} {t("connected listeners")}</p>
-        <p className="text-slate-500">{t("A connected listener does not confirm audible sound. Use the headphone test on the listener page.")}</p>
-      </div>
-      {error && <p role="alert" className="text-rose-500">{error}</p>}
-      {!eventInfo && (
-        <div className="space-y-2 border-b border-slate-200 dark:border-slate-700 pb-4">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="font-semibold">{t("Saved events · Événements enregistrés")}</h3>
-            <button onClick={refreshEvents} disabled={catalogLoading || busy} className="text-sm underline disabled:opacity-50">{catalogLoading ? t("Loading…") : t("Refresh")}</button>
-          </div>
-          <p className="text-sm text-slate-500">{t("Resume an event to keep its link and QR code after a restart. Inactive events expire 24 hours after creation by default.")}</p>
-          {catalogError && <p role="alert" className="text-rose-500">{catalogError}</p>}
-          {!catalogLoading && !catalogError && savedEvents.length === 0 && <p className="text-sm text-slate-500">{t("No saved event yet. Create one below.")}</p>}
-          <ul className="max-h-48 overflow-auto space-y-2">
-            {savedEvents.map(event => <li key={event.id} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate">{event.name} · {(event.targets || [event.target]).map((l) => l.toUpperCase()).join(" · ")}</span>
-              <button disabled={busy || active || event.live} onClick={async () => {setBusy(true); setError(""); try {await resumeEvent(event.id);} catch(e) {setError(e.message);} finally {setBusy(false);}}} className="shrink-0 px-3 py-2 rounded-lg border border-emerald-500 disabled:opacity-40">{event.live ? t("Live") : t("Resume")}</button>
-            </li>)}
-          </ul>
-        </div>
-      )}
-      {!eventInfo && <p id="share" className="scroll-mt-24 text-sm text-slate-500">{t("Create an event to get its listener link and QR code.")}</p>}
+  return (
+    <section className="rounded-3xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 shadow-sm p-5 md:p-7 space-y-5" data-testid="broadcast-panel">
       {!eventInfo ? (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <input aria-label={t("Event name")} maxLength={200} data-testid="event-name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Event name")} className="h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm dark:text-slate-100" />
-          <input aria-label={t("Organization")} maxLength={200} data-testid="event-org-input" value={org} onChange={(e) => setOrg(e.target.value)} placeholder={t("Organization")} className="h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm dark:text-slate-100" />
-          <input aria-label={t("Listener PIN")} type="password" maxLength={64} data-testid="event-pin-input" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={t("PIN (optional)")} className="h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm dark:text-slate-100" />
-          <div className="sm:col-span-3 space-y-2" data-testid="extra-languages">
-            <p className="flex items-center gap-2 text-sm font-semibold"><Languages className="h-4 w-4 text-emerald-500" />{t("Listener languages")}</p>
-            <p className="text-xs text-slate-500">{t("Each listener picks a language. Main language")}: <b>{getTarget(targetLang).flag} {getTarget(targetLang).name}</b>. {t("Add up to 4 more.")}</p>
+        <div className="space-y-5">
+          <div>
+            <h2 className="text-2xl font-extrabold tracking-tight">{t("New session")}</h2>
+            <p className="text-sm text-slate-500 mt-1">{t("Choose the languages, then start. The QR code appears right away.")}</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm font-semibold mb-1.5">{t("Speaker's language")}</p>
+              <LanguageCombobox options={SOURCE_LANGUAGES} value={sourceLang} onChange={setSourceLang} disabled={active} testId="source-language-select" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold mb-1.5">{t("Main listener language")}</p>
+              <LanguageCombobox options={TARGET_LANGUAGES} value={targetLang} onChange={setTargetLang} disabled={active} testId="target-language-select" />
+            </div>
+          </div>
+
+          <div className="space-y-2" data-testid="extra-languages">
+            <p className="text-sm font-semibold">{t("Other languages")} <span className="font-normal text-slate-500">· {t("up to 4")}</span></p>
             <div className="flex flex-wrap gap-2">
               {TARGET_LANGUAGES.filter((l) => l.code !== targetLang).map((l) => {
                 const on = chosenExtras.includes(l.code);
-                return <button key={l.code} type="button" aria-pressed={on} data-testid={`extra-lang-${l.code}`} onClick={() => toggleExtra(l.code)} disabled={!on && chosenExtras.length >= MAX_EXTRA}
-                  className={`px-3 py-1.5 rounded-full border text-sm transition-colors disabled:opacity-40 ${on ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-slate-300 dark:border-slate-700 hover:border-slate-400"}`}>{l.flag} {t(l.name)}</button>;
+                return <button key={l.code} type="button" aria-pressed={on} data-testid={`extra-lang-${l.code}`} onClick={() => toggleExtra(l.code)} disabled={!on && chosenExtras.length >= MAX_EXTRA} className={chip(on)}>{l.flag} {t(l.name)}</button>;
               })}
             </div>
             <details className="text-sm" data-testid="cascade-languages" open={chosenExtras.some(isCascade)}>
-              <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">{t("More languages (text translation + studio voice, about 2-4 s later)")}</summary>
+              <summary className="cursor-pointer text-sm text-slate-500">{t("More languages")} (+{CASCADE_LANGUAGES.length})</summary>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {CASCADE_LANGUAGES.map((l) => {
                   const on = chosenExtras.includes(l.code);
-                  return <button key={l.code} type="button" aria-pressed={on} data-testid={`extra-lang-${l.code}`} onClick={() => toggleExtra(l.code)} disabled={!on && chosenExtras.length >= MAX_EXTRA}
-                    className={`px-2.5 py-1 rounded-full border text-xs transition-colors disabled:opacity-40 ${on ? "border-violet-500 bg-violet-500/10 text-violet-700 dark:text-violet-300" : "border-slate-300 dark:border-slate-700"}`}>{t(l.name)} · {l.native}</button>;
+                  return <button key={l.code} type="button" aria-pressed={on} data-testid={`extra-lang-${l.code}`} onClick={() => toggleExtra(l.code)} disabled={!on && chosenExtras.length >= MAX_EXTRA} className={chip(on, "violet")}>{t(l.name)}</button>;
                 })}
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">{t("Voice quality varies by language; check it with a native speaker before an important event.")}</p>
+              <p className="mt-1 text-xs text-slate-500">{t("These languages arrive a few seconds later, read by a studio voice.")}</p>
             </details>
-            {chosenExtras.length > 0 && (
-              <div className="space-y-1" data-testid="human-languages">
-                <p className="text-xs text-slate-500">{t("Who interprets each extra language?")}</p>
-                <div className="flex flex-wrap gap-2">
-                  {chosenExtras.map((code) => {
-                    const human = (humanLangs || []).includes(code);
-                    if (isCascade(code)) return <span key={code} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-400/60 text-xs text-violet-700 dark:text-violet-300">{code.toUpperCase()} · {t("Text + voice")}</span>;
-                    return <button key={code} type="button" aria-pressed={human} data-testid={`human-lang-${code}`} onClick={() => toggleHuman(code)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs ${human ? "border-sky-500 bg-sky-500/10 text-sky-700 dark:text-sky-300" : "border-slate-300 dark:border-slate-700"}`}>
-                      {getTarget(code).flag} {code.toUpperCase()} · {human ? <><UserRound className="h-3.5 w-3.5" />{t("Human interpreter")}</> : t("AI")}
-                    </button>;
-                  })}
-                </div>
+          </div>
+
+          <input aria-label={t("Event name")} maxLength={200} data-testid="event-name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Event name")} className={field} />
+
+          {error && <p role="alert" className="text-sm text-rose-600">{error}</p>}
+
+          <button data-testid="start-event-button" onClick={doStart} disabled={busy} className="w-full h-14 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-lg font-extrabold flex items-center justify-center gap-2 shadow-[0_10px_30px_-10px_rgba(16,185,129,0.7)] disabled:opacity-50">
+            <Play className="h-5 w-5 fill-white" />{busy ? t("Starting…") : t("Start session")}
+          </button>
+
+          <div className="flex flex-wrap gap-x-6 gap-y-3">
+            <details className="text-sm flex-1 min-w-[240px]">
+              <summary className="cursor-pointer font-semibold text-slate-600 dark:text-slate-300">{t("Session options")}</summary>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input aria-label={t("Organization")} maxLength={200} data-testid="event-org-input" value={org} onChange={(e) => setOrg(e.target.value)} placeholder={t("Organization")} className={field} />
+                <input aria-label={t("Listener PIN")} type="password" maxLength={64} data-testid="event-pin-input" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={t("PIN (optional)")} className={field} />
+                <label className="inline-flex items-center gap-2 h-11 px-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-sm cursor-pointer" data-testid="branding-fields">
+                  {logo ? <img src={logo} alt="" className="h-7 w-7 object-contain" /> : <ImagePlus className="h-4 w-4" />}
+                  {logo ? t("Change logo") : t("Add a logo")}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { try { setLogo(await shrinkLogo(f)); } catch (err) { setError(err.message); } } }} />
+                </label>
+                <input aria-label={t("Sponsor or thank-you line")} maxLength={160} value={sponsor} onChange={(e) => setSponsor(e.target.value)} placeholder={t("Sponsor or thank-you line (optional)")} className={field} />
+                <label className="sm:col-span-2 flex items-start gap-2 cursor-pointer" data-testid="archive-toggle">
+                  <input type="checkbox" checked={archive} onChange={(e) => setArchive(e.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" />
+                  <span>{t("Keep transcripts on the server")}</span>
+                </label>
+                {chosenExtras.filter((c) => !isCascade(c)).length > 0 && (
+                  <div className="sm:col-span-2 space-y-1.5" data-testid="human-languages">
+                    <p className="text-xs text-slate-500">{t("Languages handled by a human interpreter")}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {chosenExtras.filter((c) => !isCascade(c)).map((code) => {
+                        const human = (humanLangs || []).includes(code);
+                        return <button key={code} type="button" aria-pressed={human} data-testid={`human-lang-${code}`} onClick={() => toggleHuman(code)} className={chip(human, "sky")}>{getTarget(code).flag} {code.toUpperCase()} · {human ? t("Human interpreter") : t("AI")}</button>;
+                      })}
+                    </div>
+                  </div>
+                )}
+                <button data-testid="create-event-button" onClick={doCreate} disabled={busy} className="sm:col-span-2 h-10 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-semibold disabled:opacity-50">{t("Create without starting")}</button>
               </div>
+            </details>
+            {savedEvents.length > 0 && (
+              <details className="text-sm flex-1 min-w-[240px]">
+                <summary className="cursor-pointer font-semibold text-slate-600 dark:text-slate-300">{t("Resume a saved session")} ({savedEvents.length})</summary>
+                {catalogError && <p role="alert" className="text-rose-500 mt-2">{catalogError}</p>}
+                <ul className="mt-2 max-h-56 overflow-auto space-y-2">
+                  {savedEvents.map((event) => <li key={event.id} className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate">{event.name} · {(event.targets || [event.target]).map((l) => l.toUpperCase()).join(" · ")}</span>
+                    <button disabled={busy || active || event.live} onClick={async () => { setBusy(true); setError(""); try { await resumeEvent(event.id); } catch (e) { setError(e.message); } finally { setBusy(false); } }} className="shrink-0 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-semibold disabled:opacity-40">{t("Resume")}</button>
+                  </li>)}
+                </ul>
+                <button onClick={refreshEvents} disabled={catalogLoading || busy} className={`${soft} mt-2`}>{catalogLoading ? t("Loading…") : t("Refresh")}</button>
+              </details>
             )}
-            {chosenExtras.length > 0 && <p className="text-xs text-amber-700 dark:text-amber-300">{t("Each extra language runs its own translation session from the same microphone. OpenAI usage is multiplied by the number of languages.")} ({chosenExtras.length + 1}×)</p>}
           </div>
-          <div className="sm:col-span-3 grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-3 items-center" data-testid="branding-fields">
-            <label className="inline-flex items-center gap-2 h-11 px-3 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-sm cursor-pointer">
-              {logo ? <img src={logo} alt="" className="h-7 w-7 object-contain" /> : <ImagePlus className="h-4 w-4" />}
-              {logo ? t("Change logo") : t("Add a logo")}
-              <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { try { setLogo(await shrinkLogo(f)); } catch (err) { setError(err.message); } } }} />
-            </label>
-            <input aria-label={t("Sponsor or thank-you line")} maxLength={160} value={sponsor} onChange={(e) => setSponsor(e.target.value)} placeholder={t("Sponsor or thank-you line (optional)")} className="h-11 rounded-lg bg-slate-100 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm dark:text-slate-100" />
-          </div>
-          <label className="sm:col-span-3 flex items-start gap-2 text-sm cursor-pointer" data-testid="archive-toggle">
-            <input type="checkbox" checked={archive} onChange={(e) => setArchive(e.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" />
-            <span>{t("Keep transcripts on the server")} <span className="block text-xs text-slate-500">{t("Download or translate them later from the portal. Deleted with the event.")}</span></span>
-          </label>
-          <button data-testid="create-event-button" onClick={doCreate} disabled={busy} className="sm:col-span-3 h-11 rounded-lg border border-emerald-500 text-emerald-600 dark:text-emerald-400 font-semibold hover:bg-emerald-500/10 disabled:opacity-50">{t("CREATE EVENT")}</button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-4 items-center">
-          {qr && <img data-testid="event-qr" src={qr} alt="QR" className="h-48 w-48 mx-auto rounded-lg bg-white p-2" />}
-          <div className="min-w-0 space-y-2 scroll-mt-24" id="share">
-            <h3 className="font-bold">3 · {t("Share and go live")}</h3>
-            <p className="font-semibold">{eventInfo.name}</p>
-            {eventInfo.code && (
-              <p className="text-sm" data-testid="session-code">{t("Session code")}: <b className="font-mono text-lg tracking-[0.2em]">{eventInfo.code}</b>
-                <span className="text-slate-500"> · {window.location.host}/join</span></p>
-            )}
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 items-start">
+          {qr && <button onClick={() => setFs(true)} title={t("Show QR code full screen")} className="mx-auto"><img data-testid="event-qr" src={qr} alt="QR" className="h-52 w-52 rounded-2xl bg-white p-2 border border-slate-200" /></button>}
+          <div className="min-w-0 space-y-4" id="share">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-bold ${broadcasting ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300"}`}>
+                <span className={`h-2 w-2 rounded-full ${broadcasting ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />{broadcasting ? t("LIVE") : t("Ready")}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-sm font-semibold" data-testid="listeners-count"><Users className="h-4 w-4 text-sky-500" />{listeners} {t("listeners")}</span>
+              {active && <span className="font-mono text-sm text-slate-500" data-testid="session-timer-display">{fmt(duration)}</span>}
+            </div>
+            <div>
+              <p className="text-xl font-extrabold truncate">{eventInfo.name}</p>
+              {eventInfo.code && <p className="text-sm text-slate-500" data-testid="session-code">{t("Session code")}: <b className="font-mono text-lg tracking-[0.2em] text-slate-900 dark:text-slate-100">{eventInfo.code}</b> · {window.location.host}/join</p>}
+            </div>
             <ul className="flex flex-wrap gap-2" data-testid="event-channels">
               {eventLangs.map((lang, i) => {
                 const c = channelState(lang, i);
@@ -162,65 +184,70 @@ export const BroadcastPanel = () => {
                 </li>;
               })}
             </ul>
+
+            {error && <p role="alert" className="text-sm text-rose-600">{error}</p>}
+
+            <div className="flex flex-wrap gap-2">
+              {!broadcasting ? (
+                <button data-testid="start-event-button" onClick={doStart} disabled={busy} className="flex-1 min-w-[200px] h-14 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-lg font-extrabold flex items-center justify-center gap-2 disabled:opacity-50"><Play className="h-5 w-5 fill-white" />{busy ? t("Starting…") : t("Start session")}</button>
+              ) : (
+                <button data-testid="stop-event-button" onClick={stopEvent} className="flex-1 min-w-[200px] h-14 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-lg font-extrabold flex items-center justify-center gap-2"><Square className="h-5 w-5 fill-white" />{t("Stop")}</button>
+              )}
+              {active && (
+                <button data-testid="mute-input-button" onClick={toggleInputMute} className={`h-14 px-5 rounded-2xl border-2 font-bold flex items-center gap-2 ${inputMuted ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300" : "border-slate-300 dark:border-slate-700"}`}>
+                  {inputMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}{inputMuted ? t("Mic off") : t("Mic on")}
+                </button>
+              )}
+            </div>
+            {!broadcasting && <p role="status" className="text-sm text-slate-500">{t("Press Start: phones receive audio only while the session is live.")}</p>}
+
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <button className={soft} onClick={async () => { try { await navigator.clipboard.writeText(listenUrl); setCopyStatus("Link copied"); } catch { setCopyStatus("Copy the event link above manually."); } }}>{t("Copy listener link")}</button>
+              <a data-testid="room-screen-link" href={screenUrl} target="_blank" rel="noreferrer" className={soft}>{t("Room screen")}</a>
+              <button data-testid="qr-fullscreen-button" onClick={() => setFs(true)} className={soft}>{t("Full-screen QR")}</button>
+              <button onClick={newEvent} disabled={busy || active || broadcasting} className={soft}>{t("New session")}</button>
+            </div>
+            {copyStatus && <p role="status" className="text-sm text-slate-500">{t(copyStatus)}</p>}
+            <a data-testid="event-listen-url" href={listenUrl} target="_blank" rel="noreferrer" className="block text-xs font-mono text-slate-400 truncate">{listenUrl}</a>
+
+            <label className="flex items-center gap-2 cursor-pointer" data-testid="listener-captions-toggle">
+              <input type="checkbox" checked={captionsToListeners} onChange={(e) => setCaptionsToListeners(e.target.checked)} className="h-4 w-4 accent-emerald-500" />
+              <span className="text-sm">{t("Show captions to listeners")}</span>
+            </label>
+
             {(eventInfo.human || []).length > 0 && (
-              <div className="rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-sm space-y-1.5" data-testid="booth-info">
+              <div className="rounded-xl border border-sky-500/40 bg-sky-500/5 p-3 text-sm space-y-1.5" data-testid="booth-info">
                 <p className="font-semibold flex items-center gap-2"><UserRound className="h-4 w-4 text-sky-500" />{t("Interpreter booth")} · {(eventInfo.human || []).map((l) => l.toUpperCase()).join(", ")}</p>
                 <p className="font-mono text-xs break-all">{boothUrl}</p>
                 {eventInfo.interpreter_code
                   ? <p>{t("Booth code")}: <b className="font-mono tracking-wider" data-testid="booth-code">{eventInfo.interpreter_code}</b></p>
                   : <button className="underline" onClick={() => rotateInterpreterCode().catch((e) => setError(e.message))}>{t("Create a new booth code")}</button>}
-                <p className="text-xs text-slate-500">{t("Send the link and code to your interpreters only. They hear the speaker and speak into their own microphone.")}</p>
               </div>
             )}
-            <button onClick={newEvent} disabled={busy || active || broadcasting} className="text-sm underline disabled:opacity-40">{t("Choose another event / New event")}</button>
-            <p className="text-sm font-semibold">{t("Scan to listen")}</p>
-            <p className="text-sm text-slate-500">{t("On your phone: scan with the camera, open the link in Chrome, then tap LISTEN. Scanning alone does not start audio.")}</p>
-            {!broadcasting && <p role="status" className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">{t("Phone audio is not being broadcast. Press START EVENT, even if translation already works on this computer.")}</p>}
-            {broadcasting && listeners === 0 && <p role="status" className="text-sm text-slate-500">{t("Broadcast ready. No phone connected yet: open the listener link and tap LISTEN.")}</p>}
-            <a data-testid="event-listen-url" href={listenUrl} target="_blank" rel="noreferrer" className="block text-sm font-mono text-emerald-600 dark:text-emerald-400 truncate">{listenUrl}</a>
-            {['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname) && <p className="text-sm text-amber-600 dark:text-amber-400">{t("Local link: this QR code only works on this computer. Use an accessible HTTPS address for phones and other listeners.")}</p>}
-            <button className="rounded-lg border px-4 py-2 text-sm font-semibold" onClick={async () => {
-              try { await navigator.clipboard.writeText(listenUrl); setCopyStatus("Link copied"); }
-              catch { setCopyStatus("Copy the event link above manually."); }
-            }}>{t("Copy listener link")}</button>
-            <p role="status" className="text-sm text-slate-500">{t(copyStatus)}</p>
-            <p className="text-sm text-slate-500">{t("Share only this link and the event PIN with listeners. Keep your operator code private.")}</p>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {!broadcasting ? (
-                <button data-testid="start-event-button" onClick={doStart} disabled={busy} className="flex items-center gap-2 px-5 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold shadow-[0_0_25px_rgba(16,185,129,0.3)] disabled:opacity-50"><Play className="h-5 w-5 fill-white" />{busy ? t("Starting…") : t("Start broadcast")}</button>
-              ) : (
-                <button data-testid="stop-event-button" onClick={stopEvent} className="flex items-center gap-2 px-5 h-11 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold"><Square className="h-5 w-5 fill-white" />{t("STOP EVENT")}</button>
-              )}
-              <button data-testid="restart-broadcast-button" onClick={() => restartBroadcast().catch(e => setError(e.message))} disabled={!broadcasting} className="px-4 h-11 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 disabled:opacity-40 text-sm font-semibold">{t("RESTART BROADCAST")}</button>
-              <a data-testid="room-screen-link" href={screenUrl} target="_blank" rel="noreferrer" className="px-4 h-11 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 text-sm font-semibold flex items-center gap-2"><Monitor className="h-4 w-4" />{t("Room screen")}</a>
-              <button data-testid="qr-fullscreen-button" onClick={() => setFs(true)} className="px-4 h-11 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 text-sm font-semibold flex items-center gap-2"><QrIcon className="h-4 w-4" /> QR</button>
-            </div>
-            <label className="flex items-center gap-2 pt-1 cursor-pointer" data-testid="listener-captions-toggle">
-              <input type="checkbox" checked={captionsToListeners} onChange={(e) => setCaptionsToListeners(e.target.checked)} className="h-4 w-4 accent-emerald-500" />
-              <span className="text-sm text-slate-600 dark:text-slate-300">{t("Show translated captions to listeners (default OFF)")}</span>
-            </label>
-            <div className="flex gap-4 text-[11px] font-mono uppercase tracking-wider text-slate-400 pt-1">
-              <span>{t("Broadcast:")}<b className={broadcasting ? "text-emerald-500" : "text-slate-400"}>{broadcasting ? t("LIVE") : t("OFFLINE")}</b></span>
-              <span>{t("Translation:")}<b className={active ? "text-emerald-500" : "text-slate-400"}>{active ? t("LIVE") : t("OFFLINE")}</b></span>
-              <span>OpenAI: <b className={status.openai === "connected" ? "text-emerald-500" : "text-slate-400"}>{status.openai === "connected" ? t("CONNECTED") : "—"}</b></span>
-            </div>
           </div>
         </div>
       )}
 
-      {usage && (
-        <p className="flex items-center gap-2 text-xs text-slate-500" data-testid="usage-line">
-          <Gauge className="h-3.5 w-3.5" />{t("AI broadcast time this month")}: <b className="font-mono">{usage.total_minutes} min</b>
-          {usage.cap_minutes ? <> / {usage.cap_minutes} min</> : null}
-        </p>
-      )}
+      <details className="text-sm border-t border-slate-100 dark:border-slate-800 pt-3" data-testid="technical-details">
+        <summary className="cursor-pointer text-slate-500">{t("Technical details")}</summary>
+        <div className="mt-2 space-y-1 text-slate-600 dark:text-slate-300" data-testid="audio-route">
+          <p>{t("Microphone signal")}: {t(active && level.peak > 0.02 ? "Detected" : "Waiting")}</p>
+          <p>{t("Translated audio track")}: {t(active && ["active", "muted"].includes(status.outputAudio) ? "Received" : "Waiting")}</p>
+          <p>{t("Broadcast connection")}: {t(broadcasting ? "Connected" : "Stopped")}</p>
+          <p>OpenAI: {status.openai === "connected" ? t("CONNECTED") : "—"}</p>
+          {usage && <p data-testid="usage-line"><Gauge className="inline h-3.5 w-3.5 mr-1" />{t("AI broadcast time this month")}: <b className="font-mono">{usage.total_minutes} min</b>{usage.cap_minutes ? <> / {usage.cap_minutes} min</> : null}</p>}
+          <Link to="/debug" className={`${soft} block`} data-testid="debug-nav-link">{t("Diagnostic log")}</Link>
+          {eventInfo && <button data-testid="restart-broadcast-button" onClick={() => restartBroadcast().catch(e => setError(e.message))} disabled={!broadcasting} className={`${soft} mt-1`}>{t("Restart broadcast")}</button>}
+        </div>
+      </details>
 
       {fs && qr && (
         <div className="fixed inset-0 z-[70] bg-[#0A0D14] flex flex-col items-center justify-center p-6" data-testid="qr-fullscreen">
           <button onClick={() => setFs(false)} className="absolute top-6 right-6 text-slate-300"><X className="h-7 w-7" /></button>
           <p className="text-emerald-400 font-mono uppercase tracking-[0.35em] mb-8">{t("Scan to listen")}</p>
           <img src={qr} alt="QR" className="h-72 w-72 bg-white p-3 rounded-2xl" />
-          <p className="mt-6 font-mono text-slate-300">{listenUrl}</p>
+          {eventInfo?.code && <p className="mt-6 font-mono text-3xl tracking-[0.3em] text-white">{eventInfo.code}</p>}
+          <p className="mt-3 font-mono text-slate-300">{window.location.host}/join</p>
         </div>
       )}
     </section>

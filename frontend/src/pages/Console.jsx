@@ -1,10 +1,9 @@
 import { useLocale } from '../context/LocaleContext';
 import React, { useState } from "react";
-import { Speaker, AlertTriangle, X, Maximize2, Minimize2, Globe } from "lucide-react";
+import { AlertTriangle, X, Maximize2, Minimize2, Globe, SlidersHorizontal } from "lucide-react";
 import { useTranslationSession } from "../context/TranslationContext";
 import { Header } from "../components/Header";
 import { TranscriptPanel } from "../components/TranscriptPanel";
-import { SetupChecklist } from "../components/SetupChecklist";
 import { BroadcastPanel } from "../components/BroadcastPanel";
 import { AudioControlCard } from "../components/console/AudioControlCard";
 import { VoiceCard } from "../components/console/VoiceCard";
@@ -14,16 +13,18 @@ import { TransportControls } from "../components/console/TransportControls";
 import { SpeakerBar } from "../components/console/SpeakerBar";
 import { getTarget, sourceLabel } from "../lib/languages";
 
+// One screen for the presenter: languages, Start, QR code. Everything else
+// (audio input, voices, glossary, integrations, transcripts) is folded away.
 export default function Console() {
   const { t } = useLocale();
-  const { sourceText, targetText, error, active, translationMuted, targetLang, sourceLang, clearError, eventInfo, broadcasting } = useTranslationSession();
+  const { sourceText, targetText, error, active, targetLang, sourceLang, clearError } = useTranslationSession();
   const [fullscreen, setFullscreen] = useState(false);
   const tgt = getTarget(targetLang);
 
   const panels = (
     <>
-      <TranscriptPanel label={`Source — ${sourceLabel(sourceLang)}`} badge={sourceLang === "auto" ? <Globe className="h-3.5 w-3.5" /> : sourceLang.slice(0, 3).toUpperCase()} accent="cyan" text={sourceText} active={active} panelTestId="original-transcript-panel" textTestId="original-transcript-text" />
-      <TranscriptPanel label={`${t("Translation")} — ${tgt.name}`} badge={tgt.code.toUpperCase()} accent="emerald" text={targetText} active={active} panelTestId="translated-transcript-panel" textTestId="translated-transcript-text" />
+      <TranscriptPanel label={`${t("Original")} · ${sourceLabel(sourceLang)}`} badge={sourceLang === "auto" ? <Globe className="h-3.5 w-3.5" /> : sourceLang.slice(0, 3).toUpperCase()} accent="cyan" text={sourceText} active={active} panelTestId="original-transcript-panel" textTestId="original-transcript-text" />
+      <TranscriptPanel label={`${t("Translation")} · ${tgt.name}`} badge={tgt.code.toUpperCase()} accent="emerald" text={targetText} active={active} panelTestId="translated-transcript-panel" textTestId="translated-transcript-text" />
     </>
   );
 
@@ -33,61 +34,53 @@ export default function Console() {
 
       {fullscreen && (
         <div className="fixed inset-0 z-[60] bg-slate-100 dark:bg-[#0A0D14] p-4 md:p-8 flex flex-col" data-testid="fullscreen-transcript">
-          <div className="flex items-center justify-between mb-4">
-            <span className="font-mono uppercase tracking-widest text-sm text-slate-500">Auto → {tgt.name} · Live</span>
-            <button onClick={() => setFullscreen(false)} data-testid="exit-fullscreen-button" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"><Minimize2 className="h-4 w-4" />{t("Exit")}</button>
+          <div className="flex items-center justify-end mb-4">
+            <button onClick={() => setFullscreen(false)} data-testid="exit-fullscreen-button" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700"><Minimize2 className="h-4 w-4" />{t("Exit")}</button>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">{panels}</div>
         </div>
       )}
 
-      <main className="max-w-5xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-5">
-        <section className="tb-console-hero">
-          <div><span className="tb-eyebrow">{t("VOTRE ESPACE DE DIFFUSION")}</span><h2>{t("Faites entendre votre message.")}<br /><em>{t("Dans leur langue.")}</em></h2><p>{t("Préparez le son, choisissez la langue et invitez votre public.")}</p></div>
-          <span className="tb-session-badge">{active ? t("● Session en cours") : t("○ Prêt pour votre prochain direct")}</span>
-        </section>
-        <nav aria-label={t("Session steps")} className="tb-session-steps">
-          {[["prepare", "1", "Prepare audio", true], ["event", "2", "Create an event", !!eventInfo], ["share", "3", "Share and go live", broadcasting]].map(([id, number, label, complete]) => <a key={id} href={`#${id}`}><span>{number}</span><strong>{t(label)}</strong><small>{complete && id !== "prepare" ? t("Ready") : t("Open")}</small></a>)}
-        </nav>
-        <section id="prepare" className="scroll-mt-24 space-y-4">
-        <h2 className="font-bold text-lg">1 · {t("Prepare audio")}</h2>
-        <SetupChecklist />
-        <AudioControlCard />
-        <VoiceCard />
-        </section>
-
+      <main className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-10 space-y-5">
         {error && (
-          <div data-testid="error-banner" className="flex items-start gap-3 rounded-xl border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-red-700 dark:text-red-300">
+          <div data-testid="error-banner" className="flex items-start gap-3 rounded-2xl border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-red-700 dark:text-red-300">
             <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
-            <p className="flex-1 text-sm font-medium">{error}</p>
+            <p className="flex-1 text-sm font-medium">{t(error)}</p>
             <button onClick={clearError} data-testid="dismiss-error-button" className="shrink-0 opacity-70 hover:opacity-100"><X className="h-4 w-4" /></button>
           </div>
         )}
 
-        {/* Live controls stay on screen while scrolling (start/stop, mute, speaker). */}
-        <div className="sticky top-[104px] lg:top-16 z-40 space-y-2 -mx-1 px-1 py-1 rounded-2xl bg-slate-50/80 dark:bg-[#0A0D14]/80 backdrop-blur-md" data-testid="live-bar">
-          <TransportControls />
-          <SpeakerBar />
-        </div>
+        <BroadcastPanel />
 
-        <section id="event" className="scroll-mt-24 space-y-4">
-          <h2 className="font-bold text-lg">2 · {t("Create an event")}</h2>
-          <BroadcastPanel />
-          <IntegrationsCard />
-        </section>
+        {active && (
+          <section className="space-y-2">
+            <div className="flex justify-end">
+              <button data-testid="fullscreen-transcript-button" onClick={() => setFullscreen(true)} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800"><Maximize2 className="h-4 w-4" />{t("Fullscreen")}</button>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">{panels}</div>
+          </section>
+        )}
 
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-slate-400" data-testid="output-audio-indicator">
-            <Speaker className={`h-4 w-4 ${translationMuted ? "text-amber-500" : "text-emerald-500"}`} /> {translationMuted ? t("Translated audio muted") : t("Translated audio on")}
-          </span>
-          <button data-testid="fullscreen-transcript-button" onClick={() => setFullscreen(true)} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-800"><Maximize2 className="h-4 w-4" />{t("Fullscreen")}</button>
-        </div>
+        <details className="group rounded-3xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10" data-testid="advanced-settings">
+          <summary className="cursor-pointer list-none flex items-center gap-3 px-5 py-4 md:px-7">
+            <SlidersHorizontal className="h-5 w-5 text-slate-500" />
+            <span className="flex-1">
+              <b className="block">{t("Advanced settings")}</b>
+              <span className="text-sm text-slate-500">{t("Audio input, voice, glossary, automatic stop, Zoom/Teams, transcripts")}</span>
+            </span>
+            <span className="text-slate-400 group-open:rotate-180 transition-transform">▾</span>
+          </summary>
+          <div className="px-3 pb-4 md:px-5 space-y-4">
+            <AudioControlCard hideLanguages />
+            <TransportControls />
+            <SpeakerBar />
+            <VoiceCard />
+            <IntegrationsCard />
+            <TranscriptCard />
+          </div>
+        </details>
 
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5">{panels}</section>
-
-        <TranscriptCard />
-
-        <p className="text-center text-[11px] text-slate-400 dark:text-slate-600 font-mono">{t("Audio processed in real time · no audio files recorded by this app · use headphones to avoid echo")}</p>
+        <p className="text-center text-xs text-slate-400 dark:text-slate-600">{t("Audio is not recorded · use headphones to avoid echo")}</p>
       </main>
     </div>
   );
