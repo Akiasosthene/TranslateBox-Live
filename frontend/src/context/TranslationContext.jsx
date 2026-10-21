@@ -574,7 +574,12 @@ export function TranslationProvider({ children }) {
     const up = new MicUplink({
       eventId: ev.id, token: ev.operator_token, restartSession: startOnServer,
       onStatus: (st) => {
-        if (st.caption) { setSimple((x) => ({ ...x, caption: st.caption.text, captionLang: st.caption.lang })); return; }
+        if (st.caption) {
+          // The console transcript shows the main language; the others go to listeners only.
+          if (st.caption.lang && st.caption.lang !== targetLang) return;
+          setSimple((x) => ({ ...x, caption: st.caption.text, captionLang: st.caption.lang }));
+          return;
+        }
         if (st.source) { setSimple((x) => ({ ...x, source: st.source.text })); return; }
         setSimple((x) => ({ ...x, ...st }));
         if (st.error) setError(st.error); else if (st.connected) setError(null);

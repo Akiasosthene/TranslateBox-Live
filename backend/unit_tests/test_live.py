@@ -94,6 +94,12 @@ def test_server_session_and_cascade_reach_listeners(monkeypatch):
     monkeypatch.setattr(server, '_realtime_connect', fake_connect)
     monkeypatch.setattr(server, '_translate_many', fake_translate)
     monkeypatch.setattr(server, '_tts_pcm', fake_tts)
+
+    async def fake_tts_stream(text, voice, style):
+        pcm = await fake_tts(text, voice, style)
+        yield pcm[:len(pcm) // 2]
+        yield pcm[len(pcm) // 2:]
+    monkeypatch.setattr(server, '_tts_stream', fake_tts_stream)
     monkeypatch.setattr(ingest, 'enabled', lambda: True)
     # A 3-second tone stands in for the RTMP stream.
     monkeypatch.setattr(ingest, 'ffmpeg_args', lambda key, rate=16000: ['ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=f=300:d=3', '-ac', '1', '-ar', str(rate), '-f', 's16le', 'pipe:1'])
@@ -142,6 +148,12 @@ def test_console_mode_cascade_segments(monkeypatch):
 
     monkeypatch.setattr(server, '_translate_many', fake_translate)
     monkeypatch.setattr(server, '_tts_pcm', fake_tts)
+
+    async def fake_tts_stream(text, voice, style):
+        pcm = await fake_tts(text, voice, style)
+        yield pcm[:len(pcm) // 2]
+        yield pcm[len(pcm) // 2:]
+    monkeypatch.setattr(server, '_tts_stream', fake_tts_stream)
     with TestClient(server.app) as client:
         ev = client.post('/api/events', headers=AUTH, json={'target_language': 'fr', 'extra_languages': ['ar'], 'captions': True}).json()
         assert client.post(f"/api/events/{ev['id']}/cascade/segment", headers=AUTH, json={'text': 'x'}).status_code == 409
@@ -271,6 +283,12 @@ def test_studio_voice_mode_speaks_every_language_with_one_fixed_voice(monkeypatc
     monkeypatch.setattr(server, '_realtime_connect', fake_connect)
     monkeypatch.setattr(server, '_translate_many', fake_translate)
     monkeypatch.setattr(server, '_tts_pcm', fake_tts)
+
+    async def fake_tts_stream(text, voice, style):
+        pcm = await fake_tts(text, voice, style)
+        yield pcm[:len(pcm) // 2]
+        yield pcm[len(pcm) // 2:]
+    monkeypatch.setattr(server, '_tts_stream', fake_tts_stream)
     monkeypatch.setattr(ingest, 'enabled', lambda: False)
 
     with TestClient(server.app) as client:
@@ -318,3 +336,35 @@ def test_studio_voice_mode_speaks_every_language_with_one_fixed_voice(monkeypatc
         assert client.post(f"/api/events/{ev['id']}/server/stop", headers=AUTH).json()['stopped']
         status = client.get(f"/api/events/{ev['id']}/server", headers=AUTH).json()
         assert status['server'] is None and status['cascade'] is None
+
+
+def test_split_clauses_hands_over_sentences_and_long_clauses_early():
+    from live_engine import split_clauses
+    assert split_clauses('Bonjour à tous et bienvenue') == []
+    assert split_clauses('Bonjour à tous. Et ensuite ') == [('Bonjour à tous.', True)]
+    long = "Aujourd'hui nous allons parler de la grâce, de la foi et de l'espérance qui nous porte chaque jour, et aussi de"
+    got = split_clauses(long)
+    assert got[0] == ("Aujourd'hui nous allons parler de la grâce,", False)
+    assert all(not end for _, end in got)
+    assert 'et aussi de' not in ''.join(c for c, _ in got)  # the growing tail stays in the buffer
+
+
+def test_tts_stream_yields_whole_samples(monkeypatch):
+    import httpx
+
+    class Resp:
+        status_code = 200
+        async def aiter_bytes(self):
+            yield b'\x01\x02\x03'
+            yield b'\x04\x05\x06\x07'
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+    class Client:
+        def stream(self, *a, **k): return Resp()
+    monkeypatch.setattr(server, '_http', lambda: Client())
+
+    async def run():
+        return [c async for c in server._tts_stream('Hi', 'marin', '')]
+    chunks = asyncio.run(run())
+    assert chunks == [b'\x01\x02', b'\x03\x04\x05\x06'] and all(len(c) % 2 == 0 for c in chunks)

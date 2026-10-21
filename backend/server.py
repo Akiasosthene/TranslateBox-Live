@@ -88,7 +88,9 @@ CASCADE_LANGUAGES = {
     "ne": "Nepali", "mr": "Marathi", "te": "Telugu", "gu": "Gujarati", "kn": "Kannada", "ml": "Malayalam",
 }
 LANGUAGE_NAMES.update(CASCADE_LANGUAGES)
-CASCADE_MODEL = os.environ.get("OPENAI_CASCADE_MODEL", "") or SUMMARY_MODEL
+# Live sentence translation needs a fast model: the time it takes is heard
+# by every listener as delay.
+CASCADE_MODEL = os.environ.get("OPENAI_CASCADE_MODEL", "") or "gpt-4.1-mini"
 
 # The 13 output languages supported by gpt-realtime-translate.
 SUPPORTED_OUTPUT_LANGUAGES = {
@@ -1765,13 +1767,34 @@ async def _tts_pcm(text: str, voice: str, style: str) -> bytes:
     return resp.content
 
 
+async def _tts_stream(text: str, voice: str, style: str):
+    """Yield PCM16 24 kHz chunks as OpenAI synthesises them (studio voice)."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    payload = {"model": TTS_MODEL, "voice": voice if voice in STUDIO_VOICES else "marin", "input": text[:1200], "response_format": "pcm"}
+    if style:
+        payload["instructions"] = style[:400]
+    async with _http().stream("POST", OPENAI_SPEECH_URL, headers=_openai_headers(api_key), json=payload, timeout=30.0) as resp:
+        if resp.status_code >= 400:
+            raise RuntimeError(f"speech {resp.status_code}")
+        carry = b""
+        async for chunk in resp.aiter_bytes():
+            data = carry + chunk
+            if len(data) % 2:  # keep whole 16-bit samples
+                data, carry = data[:-1], data[-1:]
+            else:
+                carry = b""
+            if data:
+                yield data
+
+
 async def _translate_many(text: str, langs: list) -> dict:
     api_key = os.environ.get("OPENAI_API_KEY", "")
     names = {lang: LANGUAGE_NAMES.get(lang, lang) for lang in langs}
     payload = {
         "model": CASCADE_MODEL,
-        "instructions": ("You are a live interpreter. Translate the speaker's sentence into each requested language. "
-                         "Natural spoken style, faithful, no additions, keep names and numbers. Languages: "
+        "instructions": ("You are a live interpreter. Translate the speaker's words into each requested language. "
+                         "The text may be a fragment of a longer sentence: translate it as it is, never complete or "
+                         "comment it. Natural spoken style, faithful, no additions, keep names and numbers. Languages: "
                          + ", ".join(f"{k} = {v}" for k, v in names.items())),
         "input": text,
         "text": {"format": {"type": "json_schema", "name": "live_translation", "strict": True, "schema": {
@@ -1820,7 +1843,7 @@ def _live_deps(eid: str) -> live_engine.Deps:
         record_usage=_record_usage, out_of_minutes=_out_of_minutes,
         translate_many=_translate_many, tts=_tts_pcm,
         save_transcript=_save_transcript, archive_enabled=lambda e: bool((EVENTS.get(e) or {}).get("archive")),
-        realtime_connect=_realtime_connect, session_update=_realtime_session_update,
+        realtime_connect=_realtime_connect, session_update=_realtime_session_update, tts_stream=_tts_stream,
         ffmpeg_args=lambda: ingest.ffmpeg_args(_ingest_key(eid), rate=live_engine.OPENAI_RATE),
         on_stopped=_live_stopped,
     )

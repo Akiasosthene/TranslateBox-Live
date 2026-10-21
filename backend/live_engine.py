@@ -15,6 +15,7 @@ Everything that touches FastAPI state (rooms, events, usage, OpenAI calls) is
 injected through ``Deps`` so the engines stay testable.
 """
 import asyncio
+import re
 import base64
 import json
 import logging
@@ -140,6 +141,9 @@ class Deps:
     session_update: Callable[[str, str], dict] = None
     ffmpeg_args: Callable[[], list] = None
     on_stopped: Callable[[str, str], None] = field(default=lambda eid, reason: None)
+    # Streaming text-to-speech: async iterator of PCM16 24 kHz chunks. When
+    # present, the cascade starts playing a sentence before it is fully synthesised.
+    tts_stream: Callable[[str, str, str], object] = None
 
 
 class LangOutput:
@@ -211,8 +215,54 @@ class LangOutput:
                 logger.exception("Could not archive %s transcript", self.lang)
 
 
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+|(?<=[。！？])")
+_CLAUSE_BREAK = re.compile(r"(?<=[,;:，；：])\s+")
+MIN_CLAUSE_CHARS = 24   # don't voice tiny fragments on their own
+MAX_CLAUSE_CHARS = 110  # split long sentences at a comma so speech starts earlier
+
+
+def split_clauses(buffer: str) -> list:
+    """Finished clauses in a growing transcript buffer.
+
+    Returns [(clause, sentence_end)] for text that can be translated now. A
+    sentence is complete at . ! ? followed by a space. A long sentence is also
+    cut at a comma once it exceeds MAX_CLAUSE_CHARS. The last, still-growing
+    part stays in the buffer.
+    """
+    out = []
+    rest = buffer
+    while True:
+        parts = _SENTENCE_END.split(rest, maxsplit=1)
+        if len(parts) == 2 and parts[0].strip():
+            sentence, rest = parts[0].strip(), parts[1]
+            out.append((sentence, True))
+            continue
+        break
+    # Partial sentence: cut at a comma when it is already long.
+    if len(rest) > MAX_CLAUSE_CHARS:
+        pieces = _CLAUSE_BREAK.split(rest)
+        head, acc = "", []
+        for piece in pieces[:-1]:
+            acc.append(piece)
+            head = " ".join(acc)
+            if len(head) >= MIN_CLAUSE_CHARS:
+                out.append((head.strip(), False))
+                acc = []
+                head = ""
+        # whatever was not emitted stays in the buffer
+    return out
+
+
 class CascadeHub:
-    """Text translation + studio voice for languages without direct interpretation."""
+    """Text translation + studio voice for languages without direct interpretation.
+
+    Pipeline: clauses arrive from the source transcript as soon as they end
+    (not only at the end of a sentence) -> one translation call for every
+    language -> per-language speech queues. Translation of clause N+1 runs
+    while clause N is being spoken, and speech is streamed into the pacer as
+    it is synthesised, so listeners hear the first word after roughly the
+    translation time plus the time-to-first-byte of the voice.
+    """
 
     MAX_QUEUE = 6
 
@@ -221,13 +271,17 @@ class CascadeHub:
         self.voice, self.style = voice, style
         self.outputs = {lang: LangOutput(eid, lang, deps, {"mode": "studio", "voice": voice.title(), "pipeline": "text"}) for lang in self.langs}
         self.queue: asyncio.Queue = asyncio.Queue()
+        self.speech: dict = {lang: asyncio.Queue() for lang in self.langs}
         self.worker = None
+        self.speakers = []
         self.ticker = None
         self.last_activity = time.monotonic()
         self.idle_timeout = idle_timeout
         self.running = False
         self.speaker = None
         self.errors = 0
+        self.timing = {"translate_ms": None, "first_audio_ms": None}
+        self.on_caption = None  # async (lang, text) -> None; the console's transcript
 
     async def start(self):
         if self.running:
@@ -236,48 +290,74 @@ class CascadeHub:
         for out in self.outputs.values():
             await out.open()
         self.worker = asyncio.create_task(self._work())
+        self.speakers = [asyncio.create_task(self._speak(lang)) for lang in self.langs]
         self.ticker = asyncio.create_task(self._tick())
 
     def ping(self):
         self.last_activity = time.monotonic()
 
-    def submit(self, text: str, speaker: str | None = None):
+    def submit(self, text: str, speaker: str | None = None, sentence_end: bool = True):
         text = (text or "").strip()
         if not self.running or not text:
             return False
         self.ping()
-        if self.queue.qsize() >= self.MAX_QUEUE:  # falling behind: drop the oldest sentence
+        if self.queue.qsize() >= self.MAX_QUEUE:  # falling behind: drop the oldest clause
             try:
                 self.queue.get_nowait()
             except asyncio.QueueEmpty:
                 pass
-        self.queue.put_nowait((text[:2000], speaker))
+        self.queue.put_nowait((text[:2000], speaker, sentence_end))
         return True
 
     async def _work(self):
         while self.running:
-            text, speaker = await self.queue.get()
+            text, speaker, sentence_end = await self.queue.get()
+            t0 = time.monotonic()
             try:
                 translations = await self.deps.translate_many(text, self.langs)
             except Exception:
                 self.errors += 1
                 logger.warning("Cascade translation failed", exc_info=True)
                 continue
-            async def speak(lang):
-                out = self.outputs[lang]
+            self.timing["translate_ms"] = round((time.monotonic() - t0) * 1000)
+            for lang in self.langs:
                 line = (translations.get(lang) or "").strip()
-                if not line:
-                    return
-                await out.caption(line, speaker)
+                if line:
+                    q = self.speech[lang]
+                    if q.qsize() >= self.MAX_QUEUE:
+                        try:
+                            q.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                    q.put_nowait((line, speaker, sentence_end, t0))
+
+    async def _speak(self, lang: str):
+        out = self.outputs[lang]
+        mid_sentence = False
+        while self.running:
+            line, speaker, sentence_end, t0 = await self.speech[lang].get()
+            await out.caption((" " if mid_sentence else "") + line, speaker)
+            if sentence_end:
                 out.end_segment(speaker)
                 await out.send_caption()
-                try:
+            mid_sentence = not sentence_end
+            if self.on_caption:
+                await self.on_caption(lang, out.text[-3000:])
+            try:
+                if self.deps.tts_stream is not None:
+                    first = True
+                    async for chunk in self.deps.tts_stream(line, self.voice, self.style):
+                        if first:
+                            first = False
+                            self.timing["first_audio_ms"] = round((time.monotonic() - t0) * 1000)
+                        out.audio24(chunk)
+                else:
                     pcm = await self.deps.tts(line, self.voice, self.style)
+                    self.timing["first_audio_ms"] = round((time.monotonic() - t0) * 1000)
                     out.audio24(pcm)
-                except Exception:
-                    self.errors += 1
-                    logger.warning("Cascade voice failed for %s", lang, exc_info=True)
-            await asyncio.gather(*(speak(lang) for lang in self.langs))
+            except Exception:
+                self.errors += 1
+                logger.warning("Cascade voice failed for %s", lang, exc_info=True)
 
     async def _tick(self):
         started = time.monotonic()
@@ -302,13 +382,14 @@ class CascadeHub:
 
     def status(self) -> dict:
         return {"running": self.running, "languages": self.langs, "queued": self.queue.qsize(), "errors": self.errors,
+                "timing": dict(self.timing),
                 "backlog_seconds": {lang: round(o.pacer.backlog_seconds, 1) for lang, o in self.outputs.items()}}
 
     async def stop(self, reason: str = "stopped"):
         if not self.running:
             return
         self.running = False
-        for task in (self.worker, self.ticker):
+        for task in (self.worker, self.ticker, *self.speakers):
             if task and task is not asyncio.current_task():
                 task.cancel()
         for out in self.outputs.values():
@@ -329,7 +410,8 @@ class RealtimeLink:
         self.inbox: asyncio.Queue = asyncio.Queue(maxsize=50)
         self.task = None
         self.state = "starting"
-        self.source = ""
+        self.source = ""      # source text not yet handed to the text pipeline
+        self.shown = ""       # running source text shown in the console
         self.source_start = None
         self.connected_once = False
 
@@ -410,12 +492,22 @@ class RealtimeLink:
             if not self.source:
                 self.source_start = time.monotonic()
             self.source += ev.get("delta") or ""
-            await self.session.notify_console({"type": "source", "text": self.source[-2000:]})
+            self.shown = (self.shown + (ev.get("delta") or ""))[-2000:]
+            await self.session.notify_console({"type": "source", "text": self.shown})
+            # Hand finished clauses to the text pipeline right away instead of
+            # waiting for the end of the sentence: the studio voice starts sooner.
+            for clause, sentence_end in split_clauses(self.source):
+                self.session.source_segment(clause, self.source_start, sentence_end)
+                self.source = self.source.lstrip()
+                self.source = self.source[len(clause):].lstrip() if self.source.startswith(clause) else ""
+                self.source_start = time.monotonic()
         elif kind == "session.input_transcript.completed" and self.primary:
-            text = (self.source or ev.get("transcript") or "").strip()
+            text = (self.source or "").strip()
+            if not text and not getattr(self, "shown", ""):
+                text = (ev.get("transcript") or "").strip()
             self.source = ""
             if text:
-                self.session.source_segment(text, self.source_start)
+                self.session.source_segment(text, self.source_start, True)
         elif kind == "error":
             err = ev.get("error") or {}
             code = err.get("code") or err.get("type")
@@ -482,6 +574,7 @@ class ServerSession:
         if self.booth:
             await self.booth.open()
         if self.cascade:
+            self.cascade.on_caption = lambda lang, text: self.notify_console({"type": "caption", "lang": lang, "text": text})
             await self.cascade.start()
         self.tasks = [asyncio.create_task(link.run()) for link in self.links]
         self.tasks.append(asyncio.create_task(self._ingest()))
@@ -497,12 +590,12 @@ class ServerSession:
         except Exception:
             pass
 
-    def source_segment(self, text: str, started: float | None):
+    def source_segment(self, text: str, started: float | None, sentence_end: bool = True):
         self.source_segments.append({"start": round(((started or time.monotonic()) - (self.started_mono or time.monotonic())) * 1000),
                                      "end": round((time.monotonic() - self.started_mono) * 1000), "text": text[:4000], "speaker": self.speaker})
         self.source_segments = self.source_segments[-8000:]
         if self.cascade:
-            self.cascade.submit(text, self.speaker)
+            self.cascade.submit(text, self.speaker, sentence_end)
 
     @property
     def started_mono(self):
