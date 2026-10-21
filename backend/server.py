@@ -38,12 +38,14 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # OpenAI Realtime Translation configuration
-OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/translations/client_secrets"
+# OPENAI_API_BASE lets a test point every HTTP call at a local stand-in.
+OPENAI_API_BASE = os.environ.get("OPENAI_API_BASE", "https://api.openai.com").rstrip("/")
+OPENAI_CLIENT_SECRETS_URL = OPENAI_API_BASE + "/v1/realtime/translations/client_secrets"
 REALTIME_MODEL = os.environ.get("OPENAI_REALTIME_MODEL", "gpt-realtime-translate")
 INPUT_TRANSCRIPTION_MODEL = "gpt-realtime-whisper"
 
 # Studio voices: translated text re-voiced with OpenAI text-to-speech.
-OPENAI_SPEECH_URL = "https://api.openai.com/v1/audio/speech"
+OPENAI_SPEECH_URL = OPENAI_API_BASE + "/v1/audio/speech"
 TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 STUDIO_VOICES = {
     "alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx",
@@ -51,7 +53,7 @@ STUDIO_VOICES = {
 }
 TTS_RATE_MAX = int(os.environ.get("TTS_RATE_LIMIT_MAX", "300"))
 # Post-session AI summaries (Responses API).
-OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+OPENAI_RESPONSES_URL = OPENAI_API_BASE + "/v1/responses"
 SUMMARY_MODEL = os.environ.get("OPENAI_SUMMARY_MODEL", "gpt-6-luna")
 SUMMARY_MAX_BODY = int(os.environ.get("SUMMARY_MAX_BODY_BYTES", "600000"))
 LARGE_BODY_BYTES = int(os.environ.get("LARGE_BODY_BYTES", "2500000"))
@@ -1852,6 +1854,9 @@ class VoiceChoice(BaseModel):
 class ServerStart(VoiceChoice):
     instructions: str = Field(default="", max_length=MAX_INSTRUCTIONS_LEN)
     source: Literal["ingest", "browser"] = "ingest"
+    # "original": OpenAI's translation voice, which follows (and changes with)
+    # the speaker. "studio": one fixed voice for every language, text pipeline.
+    voice_mode: Literal["original", "studio"] = "original"
 
 
 @api_router.post("/events/{eid}/server/start", dependencies=[Depends(require_operator)])
@@ -1867,11 +1872,15 @@ async def server_start(eid: str, body: ServerStart):
     ai, cascade = _ai_langs(eid), _cascade_langs(eid)
     if not ai:
         raise HTTPException(400, "The main language must be interpreted directly.")
+    if body.voice.lower() not in STUDIO_VOICES:
+        raise HTTPException(400, f"Unknown voice '{body.voice}'.")
+    if body.voice_mode == "studio":
+        cascade = ai + [l for l in cascade if l not in ai]
     deps = _live_deps(eid)
     hub = live_engine.CascadeHub(eid, cascade, deps, body.voice.lower(), body.style, idle_timeout=10 ** 9) if cascade else None
     session = live_engine.ServerSession(eid, ai, hub, deps, instructions=body.instructions.strip(),
                                         idle_minutes=float(os.environ.get("SERVER_IDLE_MINUTES", "30")),
-                                        booth_room=bool(EVENTS[eid].get("human")), source=body.source)
+                                        booth_room=bool(EVENTS[eid].get("human")), source=body.source, voice_mode=body.voice_mode)
     SERVER_SESSIONS[eid] = session
     await session.start()
     return session.status()
@@ -1897,6 +1906,32 @@ async def server_stop(eid: str):
 
 class SpeakerName(BaseModel):
     name: str = Field(default="", max_length=80)
+
+
+@api_router.post("/events/{eid}/server/voice", dependencies=[Depends(require_operator)])
+async def server_voice(eid: str, body: VoiceChoice):
+    """Change the studio voice or its delivery style while the server session runs."""
+    _require_event(eid)
+    voice = body.voice.lower()
+    if voice not in STUDIO_VOICES:
+        raise HTTPException(400, f"Unknown voice '{body.voice}'.")
+    session = SERVER_SESSIONS.get(eid)
+    hub = session.cascade if session else CASCADES.get(eid)
+    if hub is None:
+        return {"applied": False}
+    hub.voice, hub.style = voice, body.style
+    for out in hub.outputs.values():
+        out.meta["voice"] = voice.title()
+        out.room["meta"] = dict(out.meta)
+        await deps_fanout_meta(out)
+    return {"applied": True, "voice": voice}
+
+
+async def deps_fanout_meta(out):
+    try:
+        await out.deps.fanout(out.room, "send_json", {"type": "meta", **out.room["meta"]})
+    except Exception:
+        logger.warning("Could not relay the new voice to listeners", exc_info=True)
 
 
 @api_router.post("/events/{eid}/server/speaker", dependencies=[Depends(require_operator)])

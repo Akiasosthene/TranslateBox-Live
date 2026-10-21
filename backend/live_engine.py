@@ -320,8 +320,11 @@ class CascadeHub:
 class RealtimeLink:
     """One OpenAI realtime translation session (one output language) over WebSocket."""
 
-    def __init__(self, session: "ServerSession", lang: str, primary: bool):
+    def __init__(self, session: "ServerSession", lang: str, primary: bool, silent: bool = False):
         self.session, self.lang, self.primary = session, lang, primary
+        # silent: only the source transcript is used (studio voice mode); the
+        # translated audio of this link is discarded and its room never opens.
+        self.silent = silent
         self.out = LangOutput(session.eid, lang, session.deps, {"mode": "original", "voice": None})
         self.inbox: asyncio.Queue = asyncio.Queue(maxsize=50)
         self.task = None
@@ -341,7 +344,8 @@ class RealtimeLink:
                 pass
 
     async def run(self):
-        await self.out.open()
+        if not self.silent:
+            await self.out.open()
         backoff = 1
         while self.session.running:
             try:
@@ -381,7 +385,8 @@ class RealtimeLink:
             if self.session.running:
                 self.state = "reconnecting"
                 await asyncio.sleep(1)
-        await self.out.close()
+        if not self.silent:
+            await self.out.close()
 
     async def _send(self, ws):
         while True:
@@ -391,6 +396,8 @@ class RealtimeLink:
     async def _event(self, ev: dict, ws):
         kind = ev.get("type", "")
         speaker = self.session.speaker
+        if self.silent and kind.startswith("session.output_"):
+            return
         if kind == "session.output_audio.delta":
             self.out.audio24(base64.b64decode(ev.get("delta") or ""))
         elif kind == "session.output_transcript.delta":
@@ -436,8 +443,13 @@ class ServerSession:
     """Translate an ingest stream on the server for every language of an event."""
 
     def __init__(self, eid: str, ai_langs: list, cascade: CascadeHub | None, deps: Deps, instructions: str = "",
-                 idle_minutes: float = 30, booth_room: bool = False, source: str = "ingest"):
+                 idle_minutes: float = 30, booth_room: bool = False, source: str = "ingest", voice_mode: str = "original"):
         self.eid, self.deps, self.cascade = eid, deps, cascade
+        # "original": OpenAI's translation voice (follows the speaker, changes
+        # with the speaker). "studio": every language is translated as text and
+        # spoken with one fixed voice by the cascade; one silent realtime link
+        # only provides the source transcript.
+        self.voice_mode = voice_mode
         # "ingest": pull the RTMP/SRT stream with ffmpeg. "browser": audio arrives
         # as PCM16 frames from the presenter's browser through feed_pcm().
         self.source = source
@@ -448,7 +460,10 @@ class ServerSession:
         self.feeder = None  # id of the socket currently allowed to push audio
         self.feeder_ws = None
         self.instructions = instructions
-        self.links = [RealtimeLink(self, lang, primary=(i == 0)) for i, lang in enumerate(ai_langs)]
+        if voice_mode == "studio":
+            self.links = [RealtimeLink(self, ai_langs[0], primary=True, silent=True)] if ai_langs else []
+        else:
+            self.links = [RealtimeLink(self, lang, primary=(i == 0)) for i, lang in enumerate(ai_langs)]
         self.running = False
         self.tasks = []
         self.audio_live = False
@@ -556,7 +571,8 @@ class ServerSession:
                 self.cascade.ping()
             if now - started >= 30:
                 for link in self.links:
-                    self.deps.record_usage(self.eid, link.lang, now - started)
+                    if not link.silent:  # the studio cascade bills its own languages
+                        self.deps.record_usage(self.eid, link.lang, now - started)
                 started = now
                 if self.deps.out_of_minutes(self.eid):
                     asyncio.create_task(self.stop("minutes"))
@@ -570,7 +586,8 @@ class ServerSession:
 
     def _save(self):
         for link in self.links:
-            link.out.save()
+            if not link.silent:
+                link.out.save()
         if self.source_segments and self.deps.archive_enabled(self.eid):
             try:
                 self.deps.save_transcript(self.eid, "src", list(self.source_segments))
@@ -580,9 +597,19 @@ class ServerSession:
     def status(self) -> dict:
         return {
             "running": self.running, "audio": self.audio_live, "started_at": self.started_at, "speaker": self.speaker, "source": self.source,
-            "languages": {link.lang: {"state": link.state, "listeners": len(link.out.room["listeners"])} for link in self.links},
+            "voice_mode": self.voice_mode,
+            "languages": self._language_status(),
             "cascade": self.cascade.status() if self.cascade else None, "stop_reason": self.stop_reason,
         }
+
+    def _language_status(self) -> dict:
+        langs = {link.lang: {"state": link.state, "listeners": len(link.out.room["listeners"])} for link in self.links if not link.silent}
+        if self.cascade:
+            # Studio languages: live as soon as the transcript link is live.
+            state = self.links[0].state if self.links else "live"
+            for lang, out in self.cascade.outputs.items():
+                langs[lang] = {"state": state if self.cascade.running else "stopped", "listeners": len(out.room["listeners"]), "studio": True}
+        return langs
 
     async def stop(self, reason: str = "stopped"):
         if not self.running:
@@ -596,7 +623,8 @@ class ServerSession:
         await asyncio.gather(*(t for t in self.tasks if t is not current), return_exceptions=True)
         self._save()
         for link in self.links:
-            await link.out.close()
+            if not link.silent:
+                await link.out.close()
         if self.booth:
             await self.booth.close()
         if self.cascade:

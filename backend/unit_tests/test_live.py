@@ -240,3 +240,81 @@ def test_ws_session_update_has_no_instructions_and_rejected_field_is_dropped(mon
         assert second['type'] == 'session.update' and 'noise_reduction' not in second['session']['audio']['input']
         assert second['session']['audio']['output']['language'] == 'en'
         client.post(f"/api/events/{ev['id']}/server/stop", headers=AUTH)
+
+
+def test_studio_voice_mode_speaks_every_language_with_one_fixed_voice(monkeypatch):
+    """voice_mode=studio: the realtime link only transcribes; listeners of the main
+    language hear the studio voice (text pipeline), not OpenAI's translation voice."""
+    sockets = []
+    pcm = base64.b64encode(tone(2400)).decode()
+    spoken = []
+
+    async def fake_connect():
+        ws = FakeWS([
+            {'type': 'session.created'},
+            {'type': 'session.input_transcript.delta', 'delta': 'Bonjour à tous.'},
+            {'type': 'session.output_transcript.delta', 'delta': 'MUST NOT REACH LISTENERS'},
+            {'type': 'session.output_audio.delta', 'delta': pcm},
+            {'type': 'session.output_transcript.completed'},
+            {'type': 'session.input_transcript.completed'},
+        ])
+        sockets.append(ws)
+        return ws
+
+    async def fake_translate(text, langs):
+        return {lang: f'[{lang}] {text}' for lang in langs}
+
+    async def fake_tts(text, voice, style):
+        spoken.append((text, voice))
+        return tone(2400)
+
+    monkeypatch.setattr(server, '_realtime_connect', fake_connect)
+    monkeypatch.setattr(server, '_translate_many', fake_translate)
+    monkeypatch.setattr(server, '_tts_pcm', fake_tts)
+    monkeypatch.setattr(ingest, 'enabled', lambda: False)
+
+    with TestClient(server.app) as client:
+        ev = client.post('/api/events', headers=AUTH, json={'target_language': 'en', 'extra_languages': ['sw'], 'captions': True}).json()
+        with client.websocket_connect(f"/api/ws/{ev['id']}?lang=en") as en:
+            en.send_json({'type': 'auth'})
+            assert en.receive_json()['live'] is False
+            started = client.post(f"/api/events/{ev['id']}/server/start", headers=AUTH,
+                                  json={'source': 'browser', 'voice_mode': 'studio', 'voice': 'cedar'})
+            assert started.status_code == 200, started.text
+            body = started.json()
+            assert body['voice_mode'] == 'studio' and body['cascade']['languages'] == ['en', 'sw']
+            assert body['languages']['en']['studio'] is True and body['languages']['sw']['studio'] is True
+            with client.websocket_connect(f"/api/ws/{ev['id']}?role=source") as src:
+                src.send_json({'type': 'auth', 'token': ev['operator_token']})
+                assert src.receive_json()['type'] == 'ready'
+                for _ in range(10):
+                    src.send_bytes(b'\0' * 1280)
+                captions, got_audio, meta = [], False, None
+                deadline = time.time() + 8
+                while time.time() < deadline and not (captions and got_audio and meta):
+                    msg = en.receive()
+                    if msg.get('bytes'):
+                        got_audio = True
+                    elif msg.get('text'):
+                        data = json.loads(msg['text'])
+                        if data.get('type') == 'caption':
+                            captions.append(data['text'])
+                        elif data.get('type') == 'meta':
+                            meta = data
+                assert got_audio and meta['mode'] == 'studio' and meta['voice'] == 'Cedar'
+                assert any('[en] Bonjour' in c for c in captions)
+                assert not any('MUST NOT' in c for c in captions)
+                assert spoken and all(v == 'cedar' for _, v in spoken)
+                # the voice can be changed live
+                assert client.post(f"/api/events/{ev['id']}/server/voice", headers=AUTH, json={'voice': 'marin'}).json() == {'applied': True, 'voice': 'marin'}
+                deadline = time.time() + 3
+                while time.time() < deadline:
+                    msg = en.receive()
+                    if msg.get('text') and json.loads(msg['text']).get('voice') == 'Marin':
+                        break
+                else:
+                    raise AssertionError('new voice not relayed')
+        assert client.post(f"/api/events/{ev['id']}/server/voice", headers=AUTH, json={'voice': 'robot'}).status_code == 400
+        assert client.post(f"/api/events/{ev['id']}/server/stop", headers=AUTH).json()['stopped']
+        status = client.get(f"/api/events/{ev['id']}/server", headers=AUTH).json()
+        assert status['server'] is None and status['cascade'] is None

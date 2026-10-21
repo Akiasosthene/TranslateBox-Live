@@ -536,6 +536,7 @@ export function TranslationProvider({ children }) {
   const [simple, setSimple] = useState({ running: false, connected: false, error: null, mic: "idle", server: null, caption: "" });
   const uplinkRef = useRef(null);
   const pollRef = useRef(null);
+  const startedVoiceModeRef = useRef(null);
   const startSimple = useCallback(async (fields) => {
     setError(null);
     let ev = broadcast.eventInfo;
@@ -545,11 +546,12 @@ export function TranslationProvider({ children }) {
     const startOnServer = async () => {
       const res = await operatorFetch(`${API}/events/${encodeURIComponent(ev.id)}/server/start`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: useStream ? "ingest" : "browser", voice: studioVoice, style: (voiceStyle || "").slice(0, 400), instructions }),
+        body: JSON.stringify({ source: useStream ? "ingest" : "browser", voice_mode: voiceMode, voice: studioVoice, style: (voiceStyle || "").slice(0, 400), instructions }),
       });
       if (!res.ok && res.status !== 409) throw new Error(await responseError(res, "The server could not start the translation."));
     };
     await startOnServer();
+    startedVoiceModeRef.current = voiceMode;
     if (useStream) {
       // RTMP/SRT: the server pulls the stream itself; the console only watches.
       uplinkRef.current?.stop(); uplinkRef.current = null;
@@ -592,7 +594,7 @@ export function TranslationProvider({ children }) {
     if (speakerRef.current) up.setSpeaker(speakerRef.current);
     setSimple({ running: true, connected: true, error: null, mic: "active", server: null, caption: "", source: "" });
     return ev;
-  }, [broadcast, modeKey, customInstructions, targetLang, profile, boostLine, studioVoice, voiceStyle, selectedDevice, ambientMode, captureSource]);
+  }, [broadcast, modeKey, customInstructions, targetLang, profile, boostLine, voiceMode, studioVoice, voiceStyle, selectedDevice, ambientMode, captureSource]);
   const stopSimple = useCallback(async () => {
     uplinkRef.current?.stop(); uplinkRef.current = null;
     clearInterval(pollRef.current);
@@ -602,6 +604,16 @@ export function TranslationProvider({ children }) {
   }, [broadcast.eventInfo]);
   useEffect(() => { uplinkRef.current?.setMuted(inputMuted); }, [inputMuted]);
   useEffect(() => { if (speaker) uplinkRef.current?.setSpeaker(speaker); }, [speaker]);
+  // Studio voice or delivery style changed during a live session: apply on the server.
+  useEffect(() => {
+    if (!simple.running || !broadcast.eventInfo) return;
+    operatorFetch(`${API}/events/${encodeURIComponent(broadcast.eventInfo.id)}/server/voice`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice: studioVoice, style: (voiceStyle || "").slice(0, 400) }),
+    }).catch(() => {});
+  }, [studioVoice, voiceStyle]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Switching between the translation voice and the studio voice needs a restart.
+  const voiceModeChangePending = simple.running && startedVoiceModeRef.current !== null && startedVoiceModeRef.current !== voiceMode;
   useEffect(() => () => { uplinkRef.current?.stop(); clearInterval(pollRef.current); }, []);
   // Listener captions switch applies to the server session too.
   useEffect(() => {
@@ -668,7 +680,7 @@ export function TranslationProvider({ children }) {
     toggleTranslationMute, toggleInputMute: () => setMicMuted(!inputMutedRef.current), testInput, stopTest,
     setMicMuted, pttEnabled, setPttEnabled, autoStopMinutes, setAutoStopMinutes,
     setCaptureSource, streamState, ingestInfo, rotateIngest, serverState, refreshServer, startServer, stopServer,
-    engineMode, setEngineMode, simple, startSimple, stopSimple,
+    engineMode, setEngineMode, simple, startSimple, stopSimple, voiceModeChangePending, voiceLabel: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label,
     idleStopMinutes, setIdleStopMinutes, pttKey, setPttKey, speaker, setSpeaker, archiveNow, archiveState,
     relayDestinations, addRelay, removeRelay, fetchUsage, loadLibrary, saveLibrary, dub, humanLangs, setHumanLangs,
     clearError: () => setError(null),

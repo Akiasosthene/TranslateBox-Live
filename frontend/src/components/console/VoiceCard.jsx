@@ -13,8 +13,13 @@ export const VoiceCard = () => {
   const {
     voiceMode, setVoiceMode, studioVoice, setStudioVoice, voiceStyleKey, setVoiceStyleKey,
     customVoiceStyle, setCustomVoiceStyle, glossary, setGlossary, previewVoice, previewing,
-    loadLibrary, saveLibrary,
+    loadLibrary, saveLibrary, voiceModeChangePending, simple, stopSimple, startSimple,
   } = useTranslationSession();
+  const [restarting, setRestarting] = useState(false);
+  const restartNow = async () => {
+    setRestarting(true);
+    try { await stopSimple(); await startSimple(); } catch { /* shown by the console error banner */ } finally { setRestarting(false); }
+  };
   const [library, setLibrary] = useState([]);
   const [picked, setPicked] = useState("");
   const [saveName, setSaveName] = useState("");
@@ -26,16 +31,25 @@ export const VoiceCard = () => {
   const studio = voiceMode === "studio";
 
   const modes = [
-    { id: "original", icon: Mic2, title: "Translation voice", desc: "Follows the speaker's tone. Lowest delay." },
-    { id: "studio", icon: AudioLines, title: "Studio voice", desc: "A fixed voice of your choice. About 1–2 s more delay." },
+    { id: "original", icon: Mic2, title: "Translation voice", desc: "Follows the speaker's tone and changes with the speaker. Lowest delay." },
+    { id: "studio", icon: AudioLines, title: "Studio voice", desc: "One fixed voice of your choice for every language. About 2–3 s more delay." },
   ];
 
   return (
     <section data-testid="voice-card" className="rounded-2xl bg-white/80 dark:bg-[#121824]/70 backdrop-blur-xl border border-slate-200/70 dark:border-white/10 shadow-lg shadow-black/5 dark:shadow-black/20 p-4 md:p-5 space-y-4">
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <p className={label}>{t("Voice heard by listeners")}</p>
-        <p className="text-xs text-slate-500">{t("Can be changed during a live session.")}</p>
+        <p className="text-xs text-slate-500">{t("The voice and its style apply live. Switching mode applies at the next start.")}</p>
       </div>
+      {voiceModeChangePending && (
+        <div data-testid="voice-mode-restart" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/60 bg-amber-500/10 px-3.5 py-2.5 text-sm">
+          <span>{t("The new voice mode will apply when the session restarts. Listeners lose a few seconds.")}</span>
+          <button type="button" onClick={restartNow} disabled={restarting || !simple?.running}
+            className="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-50">
+            {restarting ? t("Restarting…") : t("Restart now")}
+          </button>
+        </div>
+      )}
 
       <div role="radiogroup" aria-label={t("Voice heard by listeners")} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {modes.map(({ id, icon: Icon, title, desc }) => {

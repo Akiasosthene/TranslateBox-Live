@@ -2,7 +2,7 @@ import { useLocale } from '../context/LocaleContext';
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Link } from "react-router-dom";
-import { Users, Play, Square, X, UserRound, ImagePlus, Gauge, Mic, MicOff } from "lucide-react";
+import { Users, Play, Square, X, UserRound, ImagePlus, Gauge, Mic, MicOff, Mic2 } from "lucide-react";
 import { LanguageCombobox } from "./LanguageCombobox";
 import { TARGET_LANGUAGES, SOURCE_LANGUAGES, CASCADE_LANGUAGES, getTarget, isCascade } from "../lib/languages";
 import { useTranslationSession } from "../context/TranslationContext";
@@ -16,7 +16,7 @@ export const BroadcastPanel = () => {
     targetLang, extraLangs, setExtraLangs, channels, primaryListeners,
     humanLangs, setHumanLangs, rotateInterpreterCode, fetchUsage, cascadeLive,
     sourceLang, setSourceLang, setTargetLang, duration, toggleInputMute, inputMuted,
-    engineMode, simple, startSimple, stopSimple,
+    engineMode, simple, startSimple, stopSimple, voiceMode, voiceLabel, voiceModeChangePending,
   } = useTranslationSession();
   const serverMode = engineMode === "server";
   // In simple mode the server owns the session: "live" means the mic uplink is running.
@@ -225,6 +225,16 @@ export const BroadcastPanel = () => {
             {copyStatus && <p role="status" className="text-sm text-slate-500">{t(copyStatus)}</p>}
             <a data-testid="event-listen-url" href={listenUrl} target="_blank" rel="noreferrer" className="block text-xs font-mono text-slate-400 truncate">{listenUrl}</a>
 
+            {serverMode && (
+              <p className="text-sm text-slate-600 dark:text-slate-300" data-testid="voice-line">
+                <Mic2 className="inline h-4 w-4 mr-1.5 align-text-bottom text-slate-400" />
+                {(simple.server?.voice_mode || voiceMode) === "studio"
+                  ? `${t("Studio voice")} · ${voiceLabel || ""}`
+                  : t("Translation voice (follows the speaker)")}
+                {voiceModeChangePending && <span className="ml-2 text-amber-600">{t("Change pending")}</span>}
+                <span className="text-slate-400"> · {t("change under Advanced settings")}</span>
+              </p>
+            )}
             <label className="flex items-center gap-2 cursor-pointer" data-testid="listener-captions-toggle">
               <input type="checkbox" checked={captionsToListeners} onChange={(e) => setCaptionsToListeners(e.target.checked)} className="h-4 w-4 accent-emerald-500" />
               <span className="text-sm">{t("Show captions to listeners")}</span>
