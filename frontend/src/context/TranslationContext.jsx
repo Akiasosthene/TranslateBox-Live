@@ -530,22 +530,44 @@ export function TranslationProvider({ children }) {
 
   // Simple mode (default): the browser only sends the microphone to the server,
   // which runs every translation session. Nothing depends on this tab staying awake.
-  const [engineMode, setEngineMode] = usePersistentState("tbl-engine", "server");
+  // The only engine: audio goes to the server, which runs every translation session.
+  const engineMode = "server";
+  const setEngineMode = () => {};
   const [simple, setSimple] = useState({ running: false, connected: false, error: null, mic: "idle", server: null, caption: "" });
   const uplinkRef = useRef(null);
+  const pollRef = useRef(null);
   const startSimple = useCallback(async (fields) => {
     setError(null);
     let ev = broadcast.eventInfo;
     if (!ev) ev = await broadcast.createEvent(fields || {});
     const instructions = (compileInstructions({ modeKey, customText: customInstructions, targetName: getTarget(targetLang).name, profile }) + boostLine).slice(0, 6000);
+    const useStream = captureSource === "stream";
     const startOnServer = async () => {
       const res = await operatorFetch(`${API}/events/${encodeURIComponent(ev.id)}/server/start`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "browser", voice: studioVoice, style: (voiceStyle || "").slice(0, 400), instructions }),
+        body: JSON.stringify({ source: useStream ? "ingest" : "browser", voice: studioVoice, style: (voiceStyle || "").slice(0, 400), instructions }),
       });
       if (!res.ok && res.status !== 409) throw new Error(await responseError(res, "The server could not start the translation."));
     };
     await startOnServer();
+    if (useStream) {
+      // RTMP/SRT: the server pulls the stream itself; the console only watches.
+      uplinkRef.current?.stop(); uplinkRef.current = null;
+      clearInterval(pollRef.current);
+      const poll = async () => {
+        try {
+          const r = await operatorFetch(`${API}/events/${encodeURIComponent(ev.id)}/server`);
+          if (!r.ok) return;
+          const d = await r.json();
+          if (!d.server) { clearInterval(pollRef.current); setSimple((x) => ({ ...x, running: false, connected: false, error: d.server === null && x.running ? "The server session has ended." : x.error })); return; }
+          setSimple((x) => ({ ...x, running: true, connected: true, server: d.server }));
+        } catch { /* transient */ }
+      };
+      pollRef.current = setInterval(poll, 4000);
+      setSimple({ running: true, connected: true, error: null, mic: "stream", server: null, caption: "", source: "" });
+      poll();
+      return ev;
+    }
     uplinkRef.current?.stop();
     const up = new MicUplink({
       eventId: ev.id, token: ev.operator_token, restartSession: startOnServer,
@@ -570,16 +592,17 @@ export function TranslationProvider({ children }) {
     if (speakerRef.current) up.setSpeaker(speakerRef.current);
     setSimple({ running: true, connected: true, error: null, mic: "active", server: null, caption: "", source: "" });
     return ev;
-  }, [broadcast, modeKey, customInstructions, targetLang, profile, boostLine, studioVoice, voiceStyle, selectedDevice, ambientMode]);
+  }, [broadcast, modeKey, customInstructions, targetLang, profile, boostLine, studioVoice, voiceStyle, selectedDevice, ambientMode, captureSource]);
   const stopSimple = useCallback(async () => {
     uplinkRef.current?.stop(); uplinkRef.current = null;
+    clearInterval(pollRef.current);
     setSimple({ running: false, connected: false, error: null, mic: "idle", server: null, caption: "", source: "" });
     if (broadcast.eventInfo) await operatorFetch(`${API}/events/${encodeURIComponent(broadcast.eventInfo.id)}/server/stop`, { method: "POST" }).catch(() => {});
     setLevel((cur) => ({ ...cur, peak: 0 }));
   }, [broadcast.eventInfo]);
   useEffect(() => { uplinkRef.current?.setMuted(inputMuted); }, [inputMuted]);
   useEffect(() => { if (speaker) uplinkRef.current?.setSpeaker(speaker); }, [speaker]);
-  useEffect(() => () => { uplinkRef.current?.stop(); }, []);
+  useEffect(() => () => { uplinkRef.current?.stop(); clearInterval(pollRef.current); }, []);
   // Listener captions switch applies to the server session too.
   useEffect(() => {
     if (!simple.running || !broadcast.eventInfo) return;

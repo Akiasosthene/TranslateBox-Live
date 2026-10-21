@@ -5,7 +5,7 @@ room microphone does not pick up the translation.
 
 ## 1. Simple mode (default): microphone to the server
 
-1. Sign in on https://syntova.cloud/login, open **Present**. In Advanced settings, "Where translation runs" should say **Server (recommended)**.
+1. Sign in on https://syntova.cloud/login, open **Present**.
 2. Create a session: main language English, extra languages French and Spanish.
 3. Scan the QR code with a phone, pick French, tap **LISTEN**.
 4. Speak for two minutes. Expect French audio about 1 to 2 seconds behind, and captions.
@@ -18,7 +18,7 @@ room microphone does not pick up the translation.
 2. Listen in Swahili. Expect each sentence a few seconds after you finish it, read by a studio voice.
 3. If nothing comes: `docker compose logs --tail=80 backend | grep -i cascade`.
 
-## 3. Server mode (stream, console closed)
+## 3. Stream source (RTMP/SRT, console can be closed)
 
 1. In the console audio card, choose **Meeting or stream (RTMP / SRT)** and copy the server URL and stream key.
 2. From any computer with ffmpeg and a speech recording:
@@ -26,7 +26,7 @@ room microphone does not pick up the translation.
    ffmpeg -re -i speech.mp3 -c:a aac -b:a 128k -vn -f flv "rtmp://syntova.cloud:1935/live/STREAM_KEY"
    ```
    or set the same address in OBS (Settings, Stream, Custom).
-3. Under **Run on the server**, click **Start on the server**, then close the console tab.
+3. Press **Start** in the session card, then close the console tab.
 4. Listen on the phone: translation must keep going.
 5. Stop the stream and wait: the server stops on its own after 30 minutes of silence.
 

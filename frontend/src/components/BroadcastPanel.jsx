@@ -183,7 +183,8 @@ export const BroadcastPanel = () => {
               </span>
               <span className="inline-flex items-center gap-1.5 text-sm font-semibold" data-testid="listeners-count"><Users className="h-4 w-4 text-sky-500" />{serverMode ? Object.values(simple.server?.languages || {}).reduce((n, l) => n + (l.listeners || 0), 0) : listeners} {t("listeners")}</span>
               {active && !serverMode && <span className="font-mono text-sm text-slate-500" data-testid="session-timer-display">{fmt(duration)}</span>}
-              {serverMode && simple.running && <span className={`text-xs font-semibold ${level.peak > 0.02 ? "text-emerald-600" : "text-amber-600"}`}>{level.peak > 0.02 ? t("Microphone signal") + " ✓" : t("No microphone signal")}</span>}
+              {serverMode && simple.running && simple.mic !== "stream" && <span className={`text-xs font-semibold ${level.peak > 0.02 ? "text-emerald-600" : "text-amber-600"}`}>{level.peak > 0.02 ? t("Microphone signal") + " ✓" : t("No microphone signal")}</span>}
+              {serverMode && simple.running && simple.mic === "stream" && <span className={`text-xs font-semibold ${simple.server?.audio ? "text-emerald-600" : "text-amber-600"}`}>{simple.server?.audio ? t("Receiving the stream") : t("Waiting for the stream…")}</span>}
             </div>
             <div>
               <p className="text-xl font-extrabold truncate">{eventInfo.name}</p>
@@ -247,7 +248,6 @@ export const BroadcastPanel = () => {
         <div className="mt-2 space-y-1 text-slate-600 dark:text-slate-300" data-testid="audio-route">
           <p>{t("Microphone signal")}: {t(active && level.peak > 0.02 ? "Detected" : "Waiting")}</p>
           <p>{t("Translated audio track")}: {t(active && ["active", "muted"].includes(status.outputAudio) ? "Received" : "Waiting")}</p>
-          <p>{t("Translation engine")}: {serverMode ? t("Server (recommended)") : t("This browser")}</p>
           <p>{t("Broadcast connection")}: {t(live ? (serverMode && !simple.connected ? "Reconnecting…" : "Connected") : "Stopped")}</p>
           {!serverMode && <p>OpenAI: {status.openai === "connected" ? t("CONNECTED") : "—"}</p>}
           {serverMode && simple.server && <p>{t("Server audio")}: {simple.server.audio ? t("Received") : t("Waiting")} · {Object.entries(simple.server.languages || {}).map(([l, x]) => `${l.toUpperCase()} ${x.state}`).join(" · ")}</p>}

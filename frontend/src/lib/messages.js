@@ -2034,4 +2034,8 @@ export const messages = {
 "Another device took over the microphone.": {"en": "Another device took over the microphone.", "fr": "Un autre appareil a pris le micro."},
 "Server connection timed out": {"en": "Server connection timed out", "fr": "Le serveur n'a pas répondu à temps"},
 "Server session ended, restarting…": {"en": "Server session ended, restarting…", "fr": "Session serveur terminée, relance…"},
+"Audio input, speaker name, voice, Zoom/Teams": {"en": "Audio input, speaker name, voice, Zoom/Teams", "fr": "Entrée audio, nom de l'orateur, voix, Zoom/Teams"},
+"Waiting for the stream…": {"en": "Waiting for the stream…", "fr": "En attente du flux…"},
+"Then press Start in the session card: the server pulls the stream and translates every language itself. This console can be closed.": {"en": "Then press Start in the session card: the server pulls the stream and translates every language itself. This console can be closed.", "fr": "Appuyez ensuite sur Démarrer dans la carte de session : le serveur récupère le flux et traduit toutes les langues lui-même. Cette console peut être fermée."},
+"The key is secret; anyone with it can send audio to this event.": {"en": "The key is secret; anyone with it can send audio to this event.", "fr": "La clé est secrète : quiconque la possède peut envoyer du son à cet événement."},
 };
