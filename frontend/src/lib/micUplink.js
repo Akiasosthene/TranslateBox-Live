@@ -18,9 +18,13 @@ export class MicUplink {
     this.stopped = false;
     this.ctx = createAudioContext();
     if (this.ctx.state === "suspended") await this.ctx.resume();
+    // No browser noise suppression or echo cancellation: in a venue they gate
+    // the speaker's voice between words ("chopped" translation). The server
+    // asks OpenAI for far-field noise reduction instead. Ambient mode also
+    // drops automatic gain, for a mixer or PA feed at a fixed level.
     const proc = ambient
       ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-      : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      : { echoCancellation: false, noiseSuppression: false, autoGainControl: true };
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: deviceId ? { exact: deviceId } : undefined, ...proc }, video: false });
     const track = this.stream.getAudioTracks()[0];
     track.onended = () => { if (!this.stopped) this._restartMic({ deviceId, ambient }); };

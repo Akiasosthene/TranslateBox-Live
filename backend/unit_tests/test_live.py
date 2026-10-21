@@ -339,14 +339,18 @@ def test_studio_voice_mode_speaks_every_language_with_one_fixed_voice(monkeypatc
 
 
 def test_split_clauses_hands_over_sentences_and_long_clauses_early():
-    from live_engine import split_clauses
+    from live_engine import split_clauses, trim_edges
+    from array import array
     assert split_clauses('Bonjour à tous et bienvenue') == []
     assert split_clauses('Bonjour à tous. Et ensuite ') == [('Bonjour à tous.', True)]
-    long = "Aujourd'hui nous allons parler de la grâce, de la foi et de l'espérance qui nous porte chaque jour, et aussi de"
+    short = "Aujourd'hui nous allons parler de la grâce, de la foi et de l'espérance qui nous porte chaque jour, et aussi de"
+    assert split_clauses(short) == []  # under the length limit: wait for the sentence, no chopping
+    long = short + " la patience que nous devons cultiver les uns envers les autres dans nos familles, et surtout"
     got = split_clauses(long)
-    assert got[0] == ("Aujourd'hui nous allons parler de la grâce,", False)
-    assert all(not end for _, end in got)
-    assert 'et aussi de' not in ''.join(c for c, _ in got)  # the growing tail stays in the buffer
+    assert got and all(not end for _, end in got)
+    assert got[0][0].endswith(',') and 'et surtout' not in ''.join(c for c, _ in got)  # the growing tail stays
+    pcm = array('h', [0] * 2400 + [5000] * 2400 + [0] * 2400).tobytes()
+    assert len(trim_edges(pcm)) == (2400 + 2 * 1440) * 2  # 60 ms of silence kept on each side
 
 
 def test_tts_stream_yields_whole_samples(monkeypatch):

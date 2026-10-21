@@ -217,8 +217,33 @@ class LangOutput:
 
 _SENTENCE_END = re.compile(r"(?<=[.!?…])\s+|(?<=[。！？])")
 _CLAUSE_BREAK = re.compile(r"(?<=[,;:，；：])\s+")
-MIN_CLAUSE_CHARS = 24   # don't voice tiny fragments on their own
-MAX_CLAUSE_CHARS = 110  # split long sentences at a comma so speech starts earlier
+MIN_CLAUSE_CHARS = 40   # don't voice tiny fragments on their own
+MAX_CLAUSE_CHARS = 160  # split only long sentences at a comma, so speech starts earlier without sounding chopped
+
+
+SILENCE_LEVEL = 400  # PCM16 amplitude under which a sample counts as silence
+
+
+def trim_edges(pcm: bytes, rate: int = OPENAI_RATE, keep_ms: int = 60) -> bytes:
+    """Cut the silence a TTS clip starts and ends with, keeping keep_ms of it.
+
+    Each clause is synthesised as its own clip with padding on both sides;
+    played back to back those paddings are heard as a halting delivery.
+    """
+    if len(pcm) < 4:
+        return pcm
+    samples = array("h")
+    samples.frombytes(pcm[: len(pcm) - (len(pcm) % 2)])
+    n = len(samples)
+    keep = rate * keep_ms // 1000
+    start = 0
+    while start < n and abs(samples[start]) < SILENCE_LEVEL:
+        start += 1
+    end = n
+    while end > start and abs(samples[end - 1]) < SILENCE_LEVEL:
+        end -= 1
+    start, end = max(0, start - keep), min(n, end + keep)
+    return samples[start:end].tobytes()
 
 
 def split_clauses(buffer: str) -> list:
@@ -346,15 +371,25 @@ class CascadeHub:
             try:
                 if self.deps.tts_stream is not None:
                     first = True
+                    hold = b""  # last ~200 ms held back so trailing silence can be cut
+                    hold_bytes = OPENAI_RATE * 2 // 5
                     async for chunk in self.deps.tts_stream(line, self.voice, self.style):
                         if first:
+                            chunk = trim_edges(chunk + b"", keep_ms=40) if len(chunk) >= 480 else chunk
+                            if not chunk:
+                                continue
                             first = False
                             self.timing["first_audio_ms"] = round((time.monotonic() - t0) * 1000)
-                        out.audio24(chunk)
+                        hold += chunk
+                        if len(hold) > hold_bytes:
+                            out.audio24(hold[:-hold_bytes])
+                            hold = hold[-hold_bytes:]
+                    if hold:
+                        out.audio24(trim_edges(hold, keep_ms=60) if len(hold) >= 480 else hold)
                 else:
                     pcm = await self.deps.tts(line, self.voice, self.style)
                     self.timing["first_audio_ms"] = round((time.monotonic() - t0) * 1000)
-                    out.audio24(pcm)
+                    out.audio24(trim_edges(pcm))
             except Exception:
                 self.errors += 1
                 logger.warning("Cascade voice failed for %s", lang, exc_info=True)
@@ -491,8 +526,11 @@ class RealtimeLink:
         elif kind == "session.input_transcript.delta" and self.primary:
             if not self.source:
                 self.source_start = time.monotonic()
-            self.source += ev.get("delta") or ""
-            self.shown = (self.shown + (ev.get("delta") or ""))[-2000:]
+            delta = ev.get("delta") or ""
+            if delta and self.shown and self.shown[-1] in ".!?…" and delta[0] not in " ,.;:!?…":
+                delta = " " + delta  # OpenAI sends sentences without a separating space
+            self.source += delta
+            self.shown = (self.shown + delta)[-2000:]
             await self.session.notify_console({"type": "source", "text": self.shown})
             # Hand finished clauses to the text pipeline right away instead of
             # waiting for the end of the sentence: the studio voice starts sooner.

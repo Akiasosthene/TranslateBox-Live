@@ -62,7 +62,16 @@ class TbPlayer extends AudioWorkletProcessor {
     this.r = 0; // read index (float, in input samples)
     this.w = 0; // write index (int)
     this.size = 0; // buffered input samples
-    this.target = Math.round(this.inRate * (o.targetMs || 300) / 1000);
+    this.base = Math.round(this.inRate * (o.targetMs || 300) / 1000);
+    this.target = this.base;
+    // Adaptive jitter buffer: grows when audio arrives late (mobile networks),
+    // shrinks slowly when the link is steady. Natural pauses in speech are not
+    // counted: only an empty buffer that refills within jitterWindow seconds.
+    this.maxTarget = Math.round(this.inRate * (o.maxTargetMs || 1500) / 1000);
+    this.growStep = Math.round(this.inRate * 0.25);
+    this.jitterWindow = 0.5;
+    this.underrunAt = -1;
+    this.lastGrow = currentTime;
     this.maxBuf = o.maxMs ? Math.round(this.inRate * o.maxMs / 1000) : 0;
     this.buffering = true;
     this.paused = false;
@@ -75,7 +84,7 @@ class TbPlayer extends AudioWorkletProcessor {
       else if (d && d.type === 'pause') { this.paused = !!d.paused; if (this.paused) this.clear(); }
       else if (d && d.type === 'clear') this.clear();
       else if (d && d.type === 'config') {
-        if (d.targetMs) this.target = Math.round(this.inRate * d.targetMs / 1000);
+        if (d.targetMs) { this.base = Math.round(this.inRate * d.targetMs / 1000); this.target = Math.max(this.base, this.target); }
         if ('maxMs' in d) this.maxBuf = d.maxMs ? Math.round(this.inRate * d.maxMs / 1000) : 0;
       }
     };
@@ -83,6 +92,14 @@ class TbPlayer extends AudioWorkletProcessor {
   clear() { this.r = 0; this.w = 0; this.size = 0; this.buffering = true; }
   push(ab) {
     if (this.paused) return;
+    if (this.underrunAt >= 0) {
+      // Audio came back: a short gap was network jitter, a long one a pause.
+      if (currentTime - this.underrunAt < this.jitterWindow && this.target < this.maxTarget) {
+        this.target = Math.min(this.maxTarget, this.target + this.growStep);
+        this.lastGrow = currentTime;
+      }
+      this.underrunAt = -1;
+    }
     const pcm = new Int16Array(ab);
     for (let i = 0; i < pcm.length; i++) {
       if (this.size >= this.cap - 1) { this.r = (this.r + 1) % this.cap; this.size--; this.dropped++; }
@@ -102,9 +119,14 @@ class TbPlayer extends AudioWorkletProcessor {
   process(_inputs, outputs) {
     const out = outputs[0][0];
     if (this.buffering && this.size >= this.target) this.buffering = false;
+    // Steady link for 30 s: ease the buffer back towards the base delay.
+    if (this.target > this.base && currentTime - this.lastGrow > 30) {
+      this.target = Math.max(this.base, this.target - Math.round(this.inRate * 0.1));
+      this.lastGrow = currentTime;
+    }
     for (let i = 0; i < out.length; i++) {
       if (this.buffering || this.paused || this.size < 2) {
-        if (!this.buffering && !this.paused) { this.buffering = true; this.underruns++; }
+        if (!this.buffering && !this.paused) { this.buffering = true; this.underruns++; this.underrunAt = currentTime; }
         out[i] = 0;
         continue;
       }
@@ -125,6 +147,7 @@ class TbPlayer extends AudioWorkletProcessor {
       this.tick = 0;
       this.port.postMessage({
         bufferedMs: Math.round(this.size / this.inRate * 1000),
+        targetMs: Math.round(this.target / this.inRate * 1000),
         playing: !this.buffering && !this.paused,
         level: this.cnt ? Math.sqrt(this.sumSq / this.cnt) : 0,
         underruns: this.underruns, dropped: this.dropped,
@@ -157,14 +180,14 @@ export function createAudioContext() {
 
 // Plays Int16 PCM frames with a jitter buffer. Create from a user gesture.
 export class PcmPlayer {
-  constructor(ctx, { inRate = WIRE_RATE, targetMs = 300, maxMs = 0, destination, onStats } = {}) {
-    Object.assign(this, { ctx, inRate, targetMs, maxMs, destination: destination || ctx.destination, onStats, node: null, gain: null });
+  constructor(ctx, { inRate = WIRE_RATE, targetMs = 300, maxMs = 0, maxTargetMs = 1500, destination, onStats } = {}) {
+    Object.assign(this, { ctx, inRate, targetMs, maxMs, maxTargetMs, destination: destination || ctx.destination, onStats, node: null, gain: null });
   }
   async init() {
     await loadWorklets(this.ctx);
     this.node = new AudioWorkletNode(this.ctx, "tb-player", {
       numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
-      processorOptions: { inRate: this.inRate, targetMs: this.targetMs, maxMs: this.maxMs },
+      processorOptions: { inRate: this.inRate, targetMs: this.targetMs, maxMs: this.maxMs, maxTargetMs: this.maxTargetMs },
     });
     this.node.port.onmessage = (e) => this.onStats?.(e.data);
     this.gain = this.ctx.createGain();

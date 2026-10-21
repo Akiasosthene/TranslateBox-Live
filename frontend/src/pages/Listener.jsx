@@ -182,7 +182,7 @@ export default function Listener() {
       ctxRef.current = ctx;
       wantedRef.current = true; setListening(true);
       const player = new PcmPlayer(ctx, {
-        inRate: WIRE_RATE, targetMs: 350, maxMs: 2500,
+        inRate: WIRE_RATE, targetMs: 300, maxMs: 3000, maxTargetMs: 1500,
         onStats: (s) => {
           if (!wantedRef.current || pausedRef.current) return;
           setPlayback(s.playing ? "playing" : "buffering");

@@ -32,7 +32,7 @@ test('plays PCM frames through the jitter-buffered player', async () => {
   expect(screen.getAllByText('Français').length).toBeGreaterThan(0);
   await listen();
   expect(players).toHaveLength(1);
-  expect(players[0].opts).toMatchObject({ inRate: 16000, targetMs: 350, maxMs: 2500 });
+  expect(players[0].opts).toMatchObject({ inRate: 16000, targetMs: 300, maxMs: 3000 });
   act(() => sockets[0].onopen());
   expect(sockets[0].send).toHaveBeenCalledWith(JSON.stringify({type: 'auth', pin: null}));
   act(() => sockets[0].onmessage({data: JSON.stringify({type: 'status', live: true, format: 'pcm16', rate: 16000, meta: {mode: 'studio', voice: 'Marin'}})}));

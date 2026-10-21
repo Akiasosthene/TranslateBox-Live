@@ -38,3 +38,19 @@ room microphone does not pick up the translation.
 
 Note anything that fails (step number, what you saw, the time) and send it with
 `docker compose logs --since 30m backend > backend.log`.
+
+
+## If the translation sounds chopped
+
+1. Listen on the phone with earphones, or step away from the laptop: a phone
+   playing the translation next to the microphone feeds it back into the
+   session.
+2. Compare Wi-Fi and 4G on the phone. The listener's buffer now grows by itself
+   (300 ms up to 1.5 s) when audio arrives late, and shrinks after 30 s of a
+   steady link; a few seconds of chopping right after a hand-over is normal.
+3. On the console, "Ambient / TV audio mode" (Advanced settings) also disables
+   automatic gain, for a mixer or PA feed. Browser noise suppression and echo
+   cancellation are already off: they gate the speaker's voice between words.
+4. Studio voice: clips are trimmed and clauses are only split on long
+   sentences; if delivery still sounds halting, switch back to the translation
+   voice for that event.
