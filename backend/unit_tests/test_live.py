@@ -166,3 +166,52 @@ def test_cascade_languages_only_as_extras(monkeypatch):
     with TestClient(server.app) as client:
         assert client.post('/api/events', headers=AUTH, json={'target_language': 'sw'}).status_code == 400
         assert client.post('/api/events', headers=AUTH, json={'target_language': 'en', 'extra_languages': ['xx']}).status_code == 400
+
+
+def test_browser_source_feeds_server_session(monkeypatch):
+    """Presenter's browser pushes mic PCM; the server translates and listeners receive audio."""
+    sockets = []
+    pcm = base64.b64encode(tone(2400)).decode()
+
+    async def fake_connect():
+        ws = FakeWS([{'type': 'session.created'}, {'type': 'session.output_transcript.delta', 'delta': 'Hello.'},
+                     {'type': 'session.output_audio.delta', 'delta': pcm}, {'type': 'session.output_transcript.completed'}])
+        sockets.append(ws)
+        return ws
+    monkeypatch.setattr(server, '_realtime_connect', fake_connect)
+    monkeypatch.setattr(ingest, 'enabled', lambda: False)  # no RTMP needed for browser source
+
+    with TestClient(server.app) as client:
+        ev = client.post('/api/events', headers=AUTH, json={'target_language': 'en', 'captions': True}).json()
+        started = client.post(f"/api/events/{ev['id']}/server/start", headers=AUTH, json={'source': 'browser'})
+        assert started.status_code == 200, started.text
+        assert started.json()['source'] == 'browser' and started.json()['audio'] is False
+        with client.websocket_connect(f"/api/ws/{ev['id']}?lang=en") as listener:
+            listener.send_json({'type': 'auth'})
+            listener.receive_json()
+            with client.websocket_connect(f"/api/ws/{ev['id']}?role=source") as src:
+                src.send_json({'type': 'auth', 'token': ev['operator_token']})
+                assert src.receive_json()['type'] == 'ready'
+                frame = b'\0' * 1280  # 40 ms at 16 kHz
+                for _ in range(10):
+                    src.send_bytes(frame)
+                src.send_json({'type': 'speaker', 'name': 'Claire'})
+                src.send_json({'type': 'ping'})
+                pong = src.receive_json()
+                assert pong['type'] == 'pong' and pong['audio'] is True and pong['speaker'] == 'Claire'
+                got_audio = False
+                deadline = time.time() + 6
+                while time.time() < deadline and not got_audio:
+                    msg = listener.receive()
+                    if msg.get('bytes'):
+                        got_audio = True
+                assert got_audio
+            # audio appended to the realtime link in 100 ms chunks at 24 kHz
+            appended = [m for m in sockets[0].sent if m['type'] == 'session.input_audio_buffer.append']
+            assert appended and len(base64.b64decode(appended[0]['audio'])) == 4800
+        # a wrong operator token is refused
+        with pytest.raises(Exception):
+            with client.websocket_connect(f"/api/ws/{ev['id']}?role=source") as bad:
+                bad.send_json({'type': 'auth', 'token': 'nope'})
+                bad.receive_json()
+        assert client.post(f"/api/events/{ev['id']}/server/stop", headers=AUTH).json()['stopped']

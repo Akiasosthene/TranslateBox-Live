@@ -16,7 +16,12 @@ export const BroadcastPanel = () => {
     targetLang, extraLangs, setExtraLangs, channels, primaryListeners,
     humanLangs, setHumanLangs, rotateInterpreterCode, fetchUsage, cascadeLive,
     sourceLang, setSourceLang, setTargetLang, duration, toggleInputMute, inputMuted,
+    engineMode, simple, startSimple, stopSimple,
   } = useTranslationSession();
+  const serverMode = engineMode === "server";
+  // In simple mode the server owns the session: "live" means the mic uplink is running.
+  const live = serverMode ? simple.running : broadcasting;
+  const engineActive = serverMode ? simple.running : active;
   const [logo, setLogo] = useState("");
   const [sponsor, setSponsor] = useState("");
   const [archive, setArchive] = useState(false);
@@ -33,6 +38,13 @@ export const BroadcastPanel = () => {
   const screenUrl = eventInfo ? `${window.location.origin}/e/${eventInfo.id}/screen` : "";
   const eventLangs = eventInfo ? (eventInfo.targets || [eventInfo.target]) : [];
   const channelState = (lang, i) => {
+    if (serverMode) {
+      const st = simple.server?.languages?.[lang];
+      const casc = simple.server?.cascade;
+      if (st) return { live: st.state === "live", listeners: st.listeners || 0, state: st.state };
+      if (casc && isCascade(lang)) return { live: simple.running, listeners: eventInfo?.channels?.find((x) => x.lang === lang)?.listeners || 0, state: "cascade" };
+      return { live: false, listeners: eventInfo?.channels?.find((x) => x.lang === lang)?.listeners || 0, state: simple.running ? "starting" : "idle" };
+    }
     if (i === 0) return { live: broadcasting, listeners: primaryListeners, state: broadcasting ? "live" : "idle" };
     if (isCascade(lang)) { const c = eventInfo?.channels?.find((x) => x.lang === lang); return { live: broadcasting && cascadeLive, listeners: c?.listeners || 0, state: "cascade" }; }
     if ((eventInfo?.human || []).includes(lang)) return { live: false, listeners: eventInfo.channels?.find((c) => c.lang === lang)?.listeners || 0, state: "human" };
@@ -55,7 +67,8 @@ export const BroadcastPanel = () => {
   }, [listenUrl]);
 
   const doCreate = async () => { setBusy(true); setError(""); try { await createEvent({ name, organization: org, pin, logo, sponsor, archive }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
-  const doStart = async () => { setBusy(true); setError(""); try { await startEvent({ name, organization: org, pin, logo, sponsor, archive }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const doStart = async () => { setBusy(true); setError(""); try { await (serverMode ? startSimple : startEvent)({ name, organization: org, pin, logo, sponsor, archive }); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const doStop = () => (serverMode ? stopSimple() : stopEvent());
 
   const fmt = (sec) => { const h = Math.floor(sec / 3600); const m = String(Math.floor((sec % 3600) / 60)).padStart(2, "0"); const x = String(sec % 60).padStart(2, "0"); return h ? `${h}:${m}:${x}` : `${m}:${x}`; };
   const field = "h-11 w-full rounded-xl bg-slate-50 dark:bg-[#0F1623] border border-slate-300 dark:border-slate-700 px-3 text-sm";
@@ -165,11 +178,12 @@ export const BroadcastPanel = () => {
           {qr && <button onClick={() => setFs(true)} title={t("Show QR code full screen")} className="mx-auto"><img data-testid="event-qr" src={qr} alt="QR" className="h-52 w-52 rounded-2xl bg-white p-2 border border-slate-200" /></button>}
           <div className="min-w-0 space-y-4" id="share">
             <div className="flex flex-wrap items-center gap-3">
-              <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-bold ${broadcasting ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300"}`}>
-                <span className={`h-2 w-2 rounded-full ${broadcasting ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />{broadcasting ? t("LIVE") : t("Ready")}
+              <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-bold ${live ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300"}`}>
+                <span className={`h-2 w-2 rounded-full ${live ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />{live ? (serverMode && !simple.connected ? t("Reconnecting…") : t("LIVE")) : t("Ready")}
               </span>
-              <span className="inline-flex items-center gap-1.5 text-sm font-semibold" data-testid="listeners-count"><Users className="h-4 w-4 text-sky-500" />{listeners} {t("listeners")}</span>
-              {active && <span className="font-mono text-sm text-slate-500" data-testid="session-timer-display">{fmt(duration)}</span>}
+              <span className="inline-flex items-center gap-1.5 text-sm font-semibold" data-testid="listeners-count"><Users className="h-4 w-4 text-sky-500" />{serverMode ? Object.values(simple.server?.languages || {}).reduce((n, l) => n + (l.listeners || 0), 0) : listeners} {t("listeners")}</span>
+              {active && !serverMode && <span className="font-mono text-sm text-slate-500" data-testid="session-timer-display">{fmt(duration)}</span>}
+              {serverMode && simple.running && <span className={`text-xs font-semibold ${level.peak > 0.02 ? "text-emerald-600" : "text-amber-600"}`}>{level.peak > 0.02 ? t("Microphone signal") + " ✓" : t("No microphone signal")}</span>}
             </div>
             <div>
               <p className="text-xl font-extrabold truncate">{eventInfo.name}</p>
@@ -188,24 +202,24 @@ export const BroadcastPanel = () => {
             {error && <p role="alert" className="text-sm text-rose-600">{error}</p>}
 
             <div className="flex flex-wrap gap-2">
-              {!broadcasting ? (
+              {!live ? (
                 <button data-testid="start-event-button" onClick={doStart} disabled={busy} className="flex-1 min-w-[200px] h-14 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-lg font-extrabold flex items-center justify-center gap-2 disabled:opacity-50"><Play className="h-5 w-5 fill-white" />{busy ? t("Starting…") : t("Start session")}</button>
               ) : (
-                <button data-testid="stop-event-button" onClick={stopEvent} className="flex-1 min-w-[200px] h-14 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-lg font-extrabold flex items-center justify-center gap-2"><Square className="h-5 w-5 fill-white" />{t("Stop")}</button>
+                <button data-testid="stop-event-button" onClick={doStop} className="flex-1 min-w-[200px] h-14 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-lg font-extrabold flex items-center justify-center gap-2"><Square className="h-5 w-5 fill-white" />{t("Stop")}</button>
               )}
-              {active && (
+              {engineActive && (
                 <button data-testid="mute-input-button" onClick={toggleInputMute} className={`h-14 px-5 rounded-2xl border-2 font-bold flex items-center gap-2 ${inputMuted ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300" : "border-slate-300 dark:border-slate-700"}`}>
                   {inputMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}{inputMuted ? t("Mic off") : t("Mic on")}
                 </button>
               )}
             </div>
-            {!broadcasting && <p role="status" className="text-sm text-slate-500">{t("Press Start: phones receive audio only while the session is live.")}</p>}
+            {!live && <p role="status" className="text-sm text-slate-500">{t("Press Start: phones receive audio only while the session is live.")}</p>}
 
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               <button className={soft} onClick={async () => { try { await navigator.clipboard.writeText(listenUrl); setCopyStatus("Link copied"); } catch { setCopyStatus("Copy the event link above manually."); } }}>{t("Copy listener link")}</button>
               <a data-testid="room-screen-link" href={screenUrl} target="_blank" rel="noreferrer" className={soft}>{t("Room screen")}</a>
               <button data-testid="qr-fullscreen-button" onClick={() => setFs(true)} className={soft}>{t("Full-screen QR")}</button>
-              <button onClick={newEvent} disabled={busy || active || broadcasting} className={soft}>{t("New session")}</button>
+              <button onClick={newEvent} disabled={busy || engineActive || live} className={soft}>{t("New session")}</button>
             </div>
             {copyStatus && <p role="status" className="text-sm text-slate-500">{t(copyStatus)}</p>}
             <a data-testid="event-listen-url" href={listenUrl} target="_blank" rel="noreferrer" className="block text-xs font-mono text-slate-400 truncate">{listenUrl}</a>
@@ -233,11 +247,13 @@ export const BroadcastPanel = () => {
         <div className="mt-2 space-y-1 text-slate-600 dark:text-slate-300" data-testid="audio-route">
           <p>{t("Microphone signal")}: {t(active && level.peak > 0.02 ? "Detected" : "Waiting")}</p>
           <p>{t("Translated audio track")}: {t(active && ["active", "muted"].includes(status.outputAudio) ? "Received" : "Waiting")}</p>
-          <p>{t("Broadcast connection")}: {t(broadcasting ? "Connected" : "Stopped")}</p>
-          <p>OpenAI: {status.openai === "connected" ? t("CONNECTED") : "—"}</p>
+          <p>{t("Translation engine")}: {serverMode ? t("Server (recommended)") : t("This browser")}</p>
+          <p>{t("Broadcast connection")}: {t(live ? (serverMode && !simple.connected ? "Reconnecting…" : "Connected") : "Stopped")}</p>
+          {!serverMode && <p>OpenAI: {status.openai === "connected" ? t("CONNECTED") : "—"}</p>}
+          {serverMode && simple.server && <p>{t("Server audio")}: {simple.server.audio ? t("Received") : t("Waiting")} · {Object.entries(simple.server.languages || {}).map(([l, x]) => `${l.toUpperCase()} ${x.state}`).join(" · ")}</p>}
           {usage && <p data-testid="usage-line"><Gauge className="inline h-3.5 w-3.5 mr-1" />{t("AI broadcast time this month")}: <b className="font-mono">{usage.total_minutes} min</b>{usage.cap_minutes ? <> / {usage.cap_minutes} min</> : null}</p>}
           <Link to="/debug" className={`${soft} block`} data-testid="debug-nav-link">{t("Diagnostic log")}</Link>
-          {eventInfo && <button data-testid="restart-broadcast-button" onClick={() => restartBroadcast().catch(e => setError(e.message))} disabled={!broadcasting} className={`${soft} mt-1`}>{t("Restart broadcast")}</button>}
+          {eventInfo && !serverMode && <button data-testid="restart-broadcast-button" onClick={() => restartBroadcast().catch(e => setError(e.message))} disabled={!broadcasting} className={`${soft} mt-1`}>{t("Restart broadcast")}</button>}
         </div>
       </details>
 

@@ -961,6 +961,7 @@ class EventUpdate(BaseModel):
     labels: list[str] | None = Field(default=None, max_length=10)
     pinned: bool | None = None
     archive_transcripts: bool | None = None
+    captions: bool | None = None
 
 
 @api_router.patch("/events/{eid}", dependencies=[Depends(require_operator)])
@@ -980,6 +981,8 @@ async def update_event(eid: str, body: EventUpdate):
         ev["pinned"] = body.pinned
     if body.archive_transcripts is not None:
         ev["archive"] = body.archive_transcripts
+    if body.captions is not None:
+        ev["captions"] = body.captions
     EVENTS[eid] = ev
     return {"id": eid, **_public_event(eid), "archive": bool(ev.get("archive"))}
 
@@ -1846,13 +1849,14 @@ class VoiceChoice(BaseModel):
 
 class ServerStart(VoiceChoice):
     instructions: str = Field(default="", max_length=MAX_INSTRUCTIONS_LEN)
+    source: Literal["ingest", "browser"] = "ingest"
 
 
 @api_router.post("/events/{eid}/server/start", dependencies=[Depends(require_operator)])
 async def server_start(eid: str, body: ServerStart):
     """Translate the event's RTMP/SRT stream on the server: the console can be closed."""
     _live_preflight(eid)
-    if not ingest.enabled():
+    if body.source == "ingest" and not ingest.enabled():
         raise HTTPException(400, "Stream input is not enabled on this server.")
     if eid in SERVER_SESSIONS or eid in CASCADES:
         raise HTTPException(409, "This event is already running on the server.")
@@ -1865,7 +1869,7 @@ async def server_start(eid: str, body: ServerStart):
     hub = live_engine.CascadeHub(eid, cascade, deps, body.voice.lower(), body.style, idle_timeout=10 ** 9) if cascade else None
     session = live_engine.ServerSession(eid, ai, hub, deps, instructions=body.instructions.strip(),
                                         idle_minutes=float(os.environ.get("SERVER_IDLE_MINUTES", "30")),
-                                        booth_room=bool(EVENTS[eid].get("human")))
+                                        booth_room=bool(EVENTS[eid].get("human")), source=body.source)
     SERVER_SESSIONS[eid] = session
     await session.start()
     return session.status()
@@ -2176,6 +2180,49 @@ def _out_of_minutes(eid) -> bool:
     return bool(owner and owner.get("balance_seconds") is not None and owner["balance_seconds"] <= 0)
 
 
+async def _run_source(websocket: WebSocket, eid: str):
+    """Receive PCM16 (WIRE_RATE) from the presenter's browser for a server session.
+    The newest socket wins: after a reconnect the stale one is dropped."""
+    session = SERVER_SESSIONS.get(eid)
+    if not session or not session.running or session.source != "browser":
+        await websocket.close(code=4404)
+        return
+    me = id(websocket)
+    session.feeder = me
+    session.feeder_ws = websocket
+    await websocket.send_json({"type": "ready"})
+    try:
+        while True:
+            msg = await websocket.receive()
+            if msg["type"] == "websocket.disconnect":
+                break
+            if not session.running:
+                await websocket.close(code=4404)
+                break
+            if session.feeder != me:
+                await websocket.close(code=4409)
+                break
+            if msg.get("bytes") is not None:
+                if len(msg["bytes"]) > 65536:
+                    continue
+                session.feed_pcm(msg["bytes"])
+            elif msg.get("text") is not None:
+                try:
+                    data = json.loads(msg["text"])
+                except ValueError:
+                    continue
+                if isinstance(data, dict) and data.get("type") == "speaker":
+                    session.speaker = (str(data.get("name") or "")[:80] or None)
+                elif isinstance(data, dict) and data.get("type") == "ping":
+                    await websocket.send_json({"type": "pong", **session.status()})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if session.feeder == me:
+            session.feeder = None
+            session.feeder_ws = None
+
+
 async def _run_operator(websocket: WebSocket, eid: str, room, audio_format: str = "pcm16", rate: int = 16000, counts_usage: bool = True):
     started = time.monotonic()
     charge = counts_usage and room["lang"] != SOURCE_LANG
@@ -2326,6 +2373,14 @@ async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener", l
             return
         room["operator"] = websocket
         await _run_operator(websocket, eid, room, "pcm16", 16000, counts_usage=False)
+        return
+    if role == "source":
+        # The presenter's browser pushes microphone audio into the server session.
+        token = auth.get("token", "")
+        if not isinstance(token, str) or not secrets.compare_digest(hashlib.sha256(token.encode()).hexdigest(), EVENTS[eid]["operator_token_hash"]):
+            await websocket.close(code=4401)
+            return
+        await _run_source(websocket, eid)
         return
     if role == "ingest":
         principal = _principal_from_token(auth.get("bearer", ""))

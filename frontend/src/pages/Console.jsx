@@ -17,7 +17,7 @@ import { getTarget, sourceLabel } from "../lib/languages";
 // (audio input, voices, glossary, integrations, transcripts) is folded away.
 export default function Console() {
   const { t } = useLocale();
-  const { sourceText, targetText, error, active, targetLang, sourceLang, clearError } = useTranslationSession();
+  const { sourceText, targetText, error, active, targetLang, sourceLang, clearError, engineMode, setEngineMode, simple } = useTranslationSession();
   const [fullscreen, setFullscreen] = useState(false);
   const tgt = getTarget(targetLang);
 
@@ -52,6 +52,12 @@ export default function Console() {
 
         <BroadcastPanel />
 
+        {engineMode === "server" && simple.running && (
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-testid="simple-transcripts">
+            <TranscriptPanel label={`${t("Original")} · ${sourceLabel(sourceLang)}`} badge={sourceLang === "auto" ? <Globe className="h-3.5 w-3.5" /> : sourceLang.slice(0, 3).toUpperCase()} accent="cyan" text={simple.source || ""} active panelTestId="simple-source-panel" textTestId="simple-source-text" />
+            <TranscriptPanel label={`${t("Translation")} · ${tgt.name}`} badge={tgt.code.toUpperCase()} accent="emerald" text={simple.caption || ""} active panelTestId="simple-target-panel" textTestId="simple-target-text" />
+          </section>
+        )}
         {active && (
           <section className="space-y-2">
             <div className="flex justify-end">
@@ -71,6 +77,16 @@ export default function Console() {
             <span className="text-slate-400 group-open:rotate-180 transition-transform">▾</span>
           </summary>
           <div className="px-3 pb-4 md:px-5 space-y-4">
+            <section className="rounded-2xl bg-white/80 dark:bg-[#121824]/70 border border-slate-200/70 dark:border-white/10 p-4 md:p-5 space-y-2" data-testid="engine-mode">
+              <p className="text-sm font-semibold">{t("Where translation runs")}</p>
+              <div role="radiogroup" className="inline-flex rounded-xl border border-slate-300 dark:border-slate-700 p-1 gap-1">
+                {[["server", "Server (recommended)"], ["browser", "This browser"]].map(([k, label]) => (
+                  <button key={k} type="button" role="radio" aria-checked={engineMode === k} disabled={active || simple.running} onClick={() => setEngineMode(k)} data-testid={`engine-${k}`}
+                    className={`h-9 px-3 rounded-lg text-sm font-semibold disabled:opacity-50 ${engineMode === k ? "bg-emerald-600 text-white" : "text-slate-600 dark:text-slate-300"}`}>{t(label)}</button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500">{t(engineMode === "server" ? "This device only sends the microphone. Translation keeps running if the laptop sleeps or the Wi-Fi drops." : "This browser talks to the AI itself and relays the audio. Keep the tab open and awake.")}</p>
+            </section>
             <AudioControlCard hideLanguages />
             <TransportControls />
             <SpeakerBar />

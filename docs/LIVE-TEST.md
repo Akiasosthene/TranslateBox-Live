@@ -3,13 +3,14 @@
 Run this once before showing Syntova to a client. Use headphones on the listening phone so the
 room microphone does not pick up the translation.
 
-## 1. Browser mode (microphone)
+## 1. Simple mode (default): microphone to the server
 
-1. Sign in on https://syntova.cloud/login, open **Present**.
+1. Sign in on https://syntova.cloud/login, open **Present**. In Advanced settings, "Where translation runs" should say **Server (recommended)**.
 2. Create a session: main language English, extra languages French and Spanish.
 3. Scan the QR code with a phone, pick French, tap **LISTEN**.
 4. Speak for two minutes. Expect French audio about 1 to 2 seconds behind, and captions.
 5. Switch the phone to Spanish while you speak: audio should follow within a few seconds.
+6. Put the laptop to sleep for a minute, then wake it: the console must show "Reconnecting…" then LIVE again, and phones must get audio again without touching anything.
 
 ## 2. Text-and-voice language (cascade)
 

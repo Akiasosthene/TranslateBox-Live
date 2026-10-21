@@ -96,7 +96,7 @@ The console reads the stream on `wss://<domain>/api/ws/{id}?role=ingest` (first 
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/events/{id}/server/start` | Translate the event's RTMP/SRT stream on the server `{voice, style, instructions}` |
+| `POST` | `/events/{id}/server/start` | Translate on the server `{source: "ingest" \| "browser", voice, style, instructions}`. `ingest` pulls the RTMP/SRT stream; `browser` expects microphone audio on the `source` WebSocket |
 | `GET` | `/events/{id}/server` | Status: running, audio, per-language state and listeners, text-pipeline queue |
 | `POST` | `/events/{id}/server/speaker` | `{name}` speaker label for captions and transcripts |
 | `POST` | `/events/{id}/server/stop` | Stop |
@@ -125,6 +125,10 @@ With `provider: "webhook"` the server POSTs to your **public HTTPS** URL (privat
 ```
 
 Answer with any 2xx status.
+
+## Presenter microphone WebSocket (simple mode)
+
+`wss://<domain>/api/ws/{id}?role=source` — send `{"type":"auth","token":"<event operator token>"}`, wait for `{"type":"ready"}`, then send binary PCM16 mono 16 kHz frames (40 ms). JSON messages: `{"type":"speaker","name"}`, `{"type":"ping"}` → `pong` with the server status. The server pushes `{"type":"caption","lang","text"}` and `{"type":"source","text"}` so the console can show transcripts. A newer socket for the same event takes over (close 4409); close 4404 means the server session ended and must be started again.
 
 ## Listener WebSocket
 

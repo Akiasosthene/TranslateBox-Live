@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { MicUplink } from "../lib/micUplink";
 import { TranslationEngine } from "../lib/translationEngine";
 import { MODES, EMPTY_PROFILE, compileInstructions } from "../lib/profiles";
 import { getTarget } from "../lib/languages";
@@ -11,7 +12,7 @@ import { dubSegments } from "../lib/dubbing";
 import { operatorFetch, responseError } from "../lib/api";
 import { SpeechPipeline, STUDIO_VOICES, VOICE_STYLES, applyGlossary, parseGlossary, previewVoice as requestPreview } from "../lib/speech";
 
-import { API } from "../lib/api";
+import { API, WS_BASE } from "../lib/api";
 
 const Ctx = createContext(null);
 export const useTranslationSession = () => useContext(Ctx);
@@ -527,6 +528,64 @@ export function TranslationProvider({ children }) {
     }).catch(() => {});
   }, [speaker, serverState?.server?.running, eventIdForStream]);
 
+  // Simple mode (default): the browser only sends the microphone to the server,
+  // which runs every translation session. Nothing depends on this tab staying awake.
+  const [engineMode, setEngineMode] = usePersistentState("tbl-engine", "server");
+  const [simple, setSimple] = useState({ running: false, connected: false, error: null, mic: "idle", server: null, caption: "" });
+  const uplinkRef = useRef(null);
+  const startSimple = useCallback(async (fields) => {
+    setError(null);
+    let ev = broadcast.eventInfo;
+    if (!ev) ev = await broadcast.createEvent(fields || {});
+    const instructions = (compileInstructions({ modeKey, customText: customInstructions, targetName: getTarget(targetLang).name, profile }) + boostLine).slice(0, 6000);
+    const startOnServer = async () => {
+      const res = await operatorFetch(`${API}/events/${encodeURIComponent(ev.id)}/server/start`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "browser", voice: studioVoice, style: (voiceStyle || "").slice(0, 400), instructions }),
+      });
+      if (!res.ok && res.status !== 409) throw new Error(await responseError(res, "The server could not start the translation."));
+    };
+    await startOnServer();
+    uplinkRef.current?.stop();
+    const up = new MicUplink({
+      eventId: ev.id, token: ev.operator_token, restartSession: startOnServer,
+      onStatus: (st) => {
+        if (st.caption) { setSimple((x) => ({ ...x, caption: st.caption.text, captionLang: st.caption.lang })); return; }
+        if (st.source) { setSimple((x) => ({ ...x, source: st.source.text })); return; }
+        setSimple((x) => ({ ...x, ...st }));
+        if (st.error) setError(st.error); else if (st.connected) setError(null);
+        if (st.ended) setSimple((x) => ({ ...x, running: false }));
+      },
+      onLevel: (l) => setLevel((cur) => ({ ...cur, peak: l.peak })),
+    });
+    uplinkRef.current = up;
+    try {
+      await up.start({ deviceId: selectedDevice, ambient: ambientMode });
+    } catch (e) {
+      up.stop(); uplinkRef.current = null;
+      await operatorFetch(`${API}/events/${encodeURIComponent(ev.id)}/server/stop`, { method: "POST" }).catch(() => {});
+      throw e;
+    }
+    up.setMuted(inputMutedRef.current);
+    if (speakerRef.current) up.setSpeaker(speakerRef.current);
+    setSimple({ running: true, connected: true, error: null, mic: "active", server: null, caption: "", source: "" });
+    return ev;
+  }, [broadcast, modeKey, customInstructions, targetLang, profile, boostLine, studioVoice, voiceStyle, selectedDevice, ambientMode]);
+  const stopSimple = useCallback(async () => {
+    uplinkRef.current?.stop(); uplinkRef.current = null;
+    setSimple({ running: false, connected: false, error: null, mic: "idle", server: null, caption: "", source: "" });
+    if (broadcast.eventInfo) await operatorFetch(`${API}/events/${encodeURIComponent(broadcast.eventInfo.id)}/server/stop`, { method: "POST" }).catch(() => {});
+    setLevel((cur) => ({ ...cur, peak: 0 }));
+  }, [broadcast.eventInfo]);
+  useEffect(() => { uplinkRef.current?.setMuted(inputMuted); }, [inputMuted]);
+  useEffect(() => { if (speaker) uplinkRef.current?.setSpeaker(speaker); }, [speaker]);
+  useEffect(() => () => { uplinkRef.current?.stop(); }, []);
+  // Listener captions switch applies to the server session too.
+  useEffect(() => {
+    if (!simple.running || !broadcast.eventInfo) return;
+    operatorFetch(`${API}/events/${encodeURIComponent(broadcast.eventInfo.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ captions: broadcast.captionsToListeners }) }).catch(() => {});
+  }, [broadcast.captionsToListeners, simple.running, broadcast.eventInfo]);
+
   // Server archive (opt-in per event): upload every minute and when stopping.
   const archiveNow = useCallback(async () => {
     const ev = broadcast.eventInfo;
@@ -586,6 +645,7 @@ export function TranslationProvider({ children }) {
     toggleTranslationMute, toggleInputMute: () => setMicMuted(!inputMutedRef.current), testInput, stopTest,
     setMicMuted, pttEnabled, setPttEnabled, autoStopMinutes, setAutoStopMinutes,
     setCaptureSource, streamState, ingestInfo, rotateIngest, serverState, refreshServer, startServer, stopServer,
+    engineMode, setEngineMode, simple, startSimple, stopSimple,
     idleStopMinutes, setIdleStopMinutes, pttKey, setPttKey, speaker, setSpeaker, archiveNow, archiveState,
     relayDestinations, addRelay, removeRelay, fetchUsage, loadLibrary, saveLibrary, dub, humanLangs, setHumanLangs,
     clearError: () => setError(null),

@@ -387,6 +387,7 @@ class RealtimeLink:
             self.out.audio24(base64.b64decode(ev.get("delta") or ""))
         elif kind == "session.output_transcript.delta":
             await self.out.caption(ev.get("delta") or "", speaker)
+            await self.session.notify_console({"type": "caption", "lang": self.lang, "text": self.out.text[-3000:]})
         elif kind == "session.output_transcript.completed":
             self.out.end_segment(speaker)
             await self.out.send_caption()
@@ -394,6 +395,7 @@ class RealtimeLink:
             if not self.source:
                 self.source_start = time.monotonic()
             self.source += ev.get("delta") or ""
+            await self.session.notify_console({"type": "source", "text": self.source[-2000:]})
         elif kind == "session.input_transcript.completed" and self.primary:
             text = (self.source or ev.get("transcript") or "").strip()
             self.source = ""
@@ -411,8 +413,15 @@ class ServerSession:
     """Translate an ingest stream on the server for every language of an event."""
 
     def __init__(self, eid: str, ai_langs: list, cascade: CascadeHub | None, deps: Deps, instructions: str = "",
-                 idle_minutes: float = 30, booth_room: bool = False):
+                 idle_minutes: float = 30, booth_room: bool = False, source: str = "ingest"):
         self.eid, self.deps, self.cascade = eid, deps, cascade
+        # "ingest": pull the RTMP/SRT stream with ffmpeg. "browser": audio arrives
+        # as PCM16 frames from the presenter's browser through feed_pcm().
+        self.source = source
+        self.feed_resampler = Resampler(WIRE_RATE, OPENAI_RATE)
+        self.feed_buf = b""
+        self.feeder = None  # id of the socket currently allowed to push audio
+        self.feeder_ws = None
         self.instructions = instructions
         self.links = [RealtimeLink(self, lang, primary=(i == 0)) for i, lang in enumerate(ai_langs)]
         self.running = False
@@ -438,6 +447,16 @@ class ServerSession:
         self.tasks.append(asyncio.create_task(self._ingest()))
         self.tasks.append(asyncio.create_task(self._tick()))
 
+    async def notify_console(self, message: dict):
+        """Best-effort message to the presenter's browser (simple mode)."""
+        ws = self.feeder_ws
+        if ws is None:
+            return
+        try:
+            await asyncio.wait_for(ws.send_json(message), timeout=1)
+        except Exception:
+            pass
+
     def source_segment(self, text: str, started: float | None):
         self.source_segments.append({"start": round(((started or time.monotonic()) - (self.started_mono or time.monotonic())) * 1000),
                                      "end": round((time.monotonic() - self.started_mono) * 1000), "text": text[:4000], "speaker": self.speaker})
@@ -451,8 +470,30 @@ class ServerSession:
             self._mono = time.monotonic()
         return self._mono
 
+    def feed_pcm(self, pcm16: bytes):
+        """Audio from the presenter's browser (PCM16 mono at WIRE_RATE)."""
+        if not self.running:
+            return
+        self.audio_live = True
+        self.last_audio = time.monotonic()
+        self.feed_buf += self.feed_resampler.process(pcm16)
+        chunk_bytes = OPENAI_RATE * 2 // 10  # 100 ms
+        while len(self.feed_buf) >= chunk_bytes:
+            chunk, self.feed_buf = self.feed_buf[:chunk_bytes], self.feed_buf[chunk_bytes:]
+            for link in self.links:
+                link.feed(chunk)
+            if self.booth:
+                self.booth.pacer.push(self.booth_resampler.process(chunk))
+
     async def _ingest(self):
         _ = self.started_mono
+        if self.source == "browser":
+            # Nothing to pull; just report "no audio" when the browser stops sending.
+            while self.running:
+                await asyncio.sleep(1)
+                if self.audio_live and time.monotonic() - self.last_audio > 3:
+                    self.audio_live = False
+            return
         chunk_bytes = OPENAI_RATE * 2 // 10  # 100 ms
         while self.running:
             proc = await asyncio.create_subprocess_exec(*self.deps.ffmpeg_args(), stdout=asyncio.subprocess.PIPE,
@@ -513,7 +554,7 @@ class ServerSession:
 
     def status(self) -> dict:
         return {
-            "running": self.running, "audio": self.audio_live, "started_at": self.started_at, "speaker": self.speaker,
+            "running": self.running, "audio": self.audio_live, "started_at": self.started_at, "speaker": self.speaker, "source": self.source,
             "languages": {link.lang: {"state": link.state, "listeners": len(link.out.room["listeners"])} for link in self.links},
             "cascade": self.cascade.status() if self.cascade else None, "stop_reason": self.stop_reason,
         }

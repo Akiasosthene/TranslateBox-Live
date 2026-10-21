@@ -1,5 +1,7 @@
 # Syntova (formerly TranslateBox)
 
+**V3.3 (2026-10-21)** — Simple mode: the presenter's browser only sends the microphone to the server (`role=source` WebSocket); the server runs every OpenAI session, reconnects on its own and keeps going if the laptop sleeps or the Wi-Fi drops. The console relaunches the server session automatically after a server restart. Browser-side translation remains available under Advanced settings → "Where translation runs".
+
 Console d’interprétation vocale en temps réel et diffusion aux auditeurs par lien/QR code.
 React + Vite, FastAPI, WebRTC vers OpenAI, WebSocket pour la diffusion.
 
