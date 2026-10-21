@@ -215,3 +215,28 @@ def test_browser_source_feeds_server_session(monkeypatch):
                 bad.send_json({'type': 'auth', 'token': 'nope'})
                 bad.receive_json()
         assert client.post(f"/api/events/{ev['id']}/server/stop", headers=AUTH).json()['stopped']
+
+
+def test_ws_session_update_has_no_instructions_and_rejected_field_is_dropped(monkeypatch):
+    update = server._realtime_session_update('fr', 'Be formal.')
+    assert 'instructions' not in update['session'] and 'model' not in update['session']
+    assert update['session']['audio']['output']['language'] == 'fr'
+    assert update['session']['audio']['input']['transcription'] == {'model': 'gpt-realtime-whisper'}
+
+    sockets = []
+    async def fake_connect():
+        ws = FakeWS([{'type': 'error', 'error': {'code': 'unknown_parameter', 'param': 'session.audio.input.noise_reduction', 'message': 'Unknown parameter'}}])
+        sockets.append(ws)
+        return ws
+    monkeypatch.setattr(server, '_realtime_connect', fake_connect)
+    with TestClient(server.app) as client:
+        ev = client.post('/api/events', headers=AUTH, json={'target_language': 'en'}).json()
+        assert client.post(f"/api/events/{ev['id']}/server/start", headers=AUTH, json={'source': 'browser'}).status_code == 200
+        deadline = time.time() + 5
+        while time.time() < deadline and len(sockets[0].sent) < 2:
+            time.sleep(0.05)
+        first, second = sockets[0].sent[0], sockets[0].sent[1]
+        assert first['type'] == 'session.update' and 'noise_reduction' in first['session']['audio']['input']
+        assert second['type'] == 'session.update' and 'noise_reduction' not in second['session']['audio']['input']
+        assert second['session']['audio']['output']['language'] == 'en'
+        client.post(f"/api/events/{ev['id']}/server/stop", headers=AUTH)

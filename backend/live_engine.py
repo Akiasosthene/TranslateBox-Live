@@ -354,7 +354,15 @@ class RealtimeLink:
                 continue
             backoff = 1
             try:
-                await ws.send(json.dumps(self.session.deps.session_update(self.lang, self.session.instructions)))
+                update = self.session.deps.session_update(self.lang, self.session.instructions)
+                for param in self.session.rejected_params:
+                    node = update
+                    keys = param.split(".")
+                    for key in keys[:-1]:
+                        node = node.get(key) if isinstance(node, dict) else None
+                    if isinstance(node, dict):
+                        node.pop(keys[-1], None)
+                await ws.send(json.dumps(update))
                 self.state = "live"
                 self.connected_once = True
                 sender = asyncio.create_task(self._send(ws))
@@ -403,10 +411,25 @@ class RealtimeLink:
                 self.session.source_segment(text, self.source_start)
         elif kind == "error":
             err = ev.get("error") or {}
-            logger.warning("Realtime error (%s): %s", self.lang, err.get("code") or err.get("type"))
-            if (err.get("param") or "").startswith("session") and self.session.instructions:
-                self.session.instructions = ""  # retry without custom instructions
-                await ws.close()
+            code = err.get("code") or err.get("type")
+            param = err.get("param") or ""
+            logger.warning("Realtime error (%s): %s param=%s: %s", self.lang, code, param, (err.get("message") or "")[:200])
+            if code in ("unknown_parameter", "invalid_value") and param.startswith("session."):
+                # Drop the rejected field and send the update again, so the
+                # language and the other settings still apply.
+                update = self.session.deps.session_update(self.lang, self.session.instructions)
+                node = update
+                keys = param.split(".")
+                for key in keys[:-1]:
+                    node = node.get(key) if isinstance(node, dict) else None
+                    if node is None:
+                        break
+                if isinstance(node, dict) and keys[-1] in node:
+                    node.pop(keys[-1])
+                    self.session.rejected_params.add(param)
+                    if param not in self.session.resent:
+                        self.session.resent.add(param)
+                        await ws.send(json.dumps(update))
 
 
 class ServerSession:
@@ -420,6 +443,8 @@ class ServerSession:
         self.source = source
         self.feed_resampler = Resampler(WIRE_RATE, OPENAI_RATE)
         self.feed_buf = b""
+        self.rejected_params: set = set()  # session.update fields OpenAI refused
+        self.resent: set = set()
         self.feeder = None  # id of the socket currently allowed to push audio
         self.feeder_ws = None
         self.instructions = instructions

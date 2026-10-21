@@ -1785,10 +1785,12 @@ async def _translate_many(text: str, langs: list) -> dict:
 
 
 def _realtime_session_update(lang: str, instructions: str) -> dict:
+    # The translations WebSocket accepts only audio.input.noise_reduction,
+    # audio.input.transcription and audio.output.language (OpenAI reference).
+    # Instructions are a WebRTC-only feature; sending them here is rejected
+    # with unknown_parameter and the language setting is lost with it.
     session = _build_session_config(lang, "far_field")["session"]
     session.pop("model", None)
-    if instructions:
-        session["instructions"] = instructions[:MAX_INSTRUCTIONS_LEN]
     return {"type": "session.update", "session": session}
 
 
