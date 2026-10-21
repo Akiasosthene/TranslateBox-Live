@@ -76,6 +76,9 @@ Only for sessions with `archive_transcripts: true`. The operator console uploads
 | `GET` / `POST` | `/users` | Admin: list, create `{email, name, role, minutes}` → temporary password |
 | `PATCH` / `DELETE` | `/users/{uid}` | Admin: `{name, role, disabled, minutes_balance, unlimited}` |
 | `POST` | `/users/{uid}/reset` | Admin: new temporary password, 2FA off |
+| `GET` | `/billing/packs` | Minute packs for sale and current balance |
+| `POST` | `/billing/checkout` | `{price_id}` → `{url}` of the Stripe Checkout page |
+| `POST` | `/billing/webhook` | Stripe webhook (signed), credits minutes |
 | `POST` | `/minutes/transfer` | `{to, minutes, from_user?}` |
 | `GET` | `/directory` | Colleagues with a minute balance (transfer targets) |
 

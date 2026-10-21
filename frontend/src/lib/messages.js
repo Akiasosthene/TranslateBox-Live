@@ -2012,4 +2012,12 @@ export const messages = {
 "Audio is not recorded · use headphones to avoid echo": {"en": "Audio is not recorded · use headphones to avoid echo", "fr": "Le son n'est pas enregistré · utilisez des écouteurs pour éviter l'écho"},
 "Start session": {"en": "Start", "fr": "Démarrer"},
 "Diagnostic log": {"en": "Diagnostic log", "fr": "Journal de diagnostic"},
+"Buy minutes": {"en": "Buy minutes", "fr": "Acheter des minutes"},
+"Thank you! Your minutes are being added; the balance updates within a few seconds.": {"en": "Thank you! Your minutes are being added; the balance updates within a few seconds.", "fr": "Merci ! Vos minutes sont en cours d'ajout ; le solde se met à jour dans quelques secondes."},
+"Payment cancelled. Nothing was charged.": {"en": "Payment cancelled. Nothing was charged.", "fr": "Paiement annulé. Rien n'a été facturé."},
+"See price at checkout": {"en": "See price at checkout", "fr": "Prix affiché au paiement"},
+"Redirecting…": {"en": "Redirecting…", "fr": "Redirection…"},
+"Buy": {"en": "Buy", "fr": "Acheter"},
+"Secure payment on Stripe. Minutes are added to your account right after payment.": {"en": "Secure payment on Stripe. Minutes are added to your account right after payment.", "fr": "Paiement sécurisé sur Stripe. Les minutes sont ajoutées à votre compte juste après le paiement."},
+"Could not start the payment.": {"en": "Could not start the payment.", "fr": "Impossible de lancer le paiement."},
 };

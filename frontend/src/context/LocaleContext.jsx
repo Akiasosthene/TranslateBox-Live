@@ -1,10 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { messages } from '../lib/messages';
 import { attendeeMessages } from '../lib/messagesAttendee';
+import { organizerMessages } from '../lib/messagesOrganizer';
 
 export const SUPPORTED_LANGUAGES = ['fr', 'en', 'es', 'pt', 'de'];
 // App screens are translated in French and English; other languages fall back to English there.
-const translate = (language, text) => attendeeMessages[text]?.[language] ?? messages[text]?.[language] ?? messages[text]?.en ?? text;
+const translate = (language, text) => attendeeMessages[text]?.[language] ?? organizerMessages[text]?.[language] ?? messages[text]?.[language] ?? messages[text]?.en ?? text;
 const initialLanguage = () => {
   try {
     const saved = localStorage.getItem('tbl-ui-language');

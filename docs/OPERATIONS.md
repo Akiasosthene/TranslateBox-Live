@@ -10,6 +10,16 @@ cd /opt/translatebox && git pull && docker compose up -d --build --wait
 curl -s https://syntova.cloud/api/health
 ```
 
+## One-time setup (does everything below)
+
+```bash
+sudo bash /opt/translatebox/deploy/setup-ops.sh
+```
+
+Rotates the operator code (printed once), installs the nightly backup, the watchdog and the
+email health alert, restarts the containers and runs a first backup. Add `--keep-code` to keep
+the current operator code.
+
 ## Nightly backups
 
 ```bash
@@ -57,3 +67,22 @@ docker compose logs --tail=100 backend
 docker compose logs --tail=100 web
 tail -n 50 /var/log/syntova-backup.log /var/log/syntova-watchdog.log
 ```
+
+## Selling minutes (Stripe)
+
+1. In the Stripe dashboard create one Product per pack (for example "300 minutes") with a one-time
+   price; copy each `price_...` id.
+2. Add a webhook endpoint `https://syntova.cloud/api/billing/webhook` for the event
+   `checkout.session.completed`; copy its signing secret `whsec_...`.
+3. In `.env`:
+   ```
+   STRIPE_SECRET_KEY=sk_live_...
+   STRIPE_WEBHOOK_SECRET=whsec_...
+   MINUTE_PACKS=300:price_abc:49 $,1000:price_def:149 $
+   ```
+   then `docker compose up -d --wait`.
+4. Users with a minute balance see **Buy minutes** in Portal → Account. Payment happens on
+   Stripe's page; the balance is credited when Stripe confirms, once per session even if the
+   webhook is retried. Purchases are kept in the store under `billing_purchases`.
+
+Test first with `sk_test_` keys and Stripe's test card 4242 4242 4242 4242.

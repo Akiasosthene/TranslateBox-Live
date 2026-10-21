@@ -4,7 +4,7 @@ WORKDIR /app
 COPY backend/requirements.lock .
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir -r requirements.lock && useradd --create-home app
-COPY --chown=app:app backend/server.py backend/event_store.py backend/accounts.py backend/ingest.py backend/live_engine.py ./
+COPY --chown=app:app backend/server.py backend/event_store.py backend/accounts.py backend/ingest.py backend/live_engine.py backend/billing.py ./
 RUN mkdir /data && chown app:app /data
 USER app
 EXPOSE 8001

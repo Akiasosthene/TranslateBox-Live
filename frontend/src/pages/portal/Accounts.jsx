@@ -121,6 +121,39 @@ export function UsersAdmin({ setError }) {
   );
 }
 
+// Minute packs paid on Stripe's hosted page; the server credits the balance on the webhook.
+function BuyMinutes({ user, setError, refreshMe }) {
+  const { t } = useLocale();
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState("");
+  const paid = new URLSearchParams(window.location.search).get("paid");
+  useEffect(() => { call("/billing/packs", {}, "").then(setInfo).catch(() => setInfo(null)); }, []);
+  useEffect(() => { if (paid === "1") { const id = setInterval(refreshMe, 3000); const stop = setTimeout(() => clearInterval(id), 30000); return () => { clearInterval(id); clearTimeout(stop); }; } return undefined; }, [paid, refreshMe]);
+  if (!info?.enabled || info.unlimited) return null;
+  const buy = async (p) => {
+    setBusy(p.price_id); setError("");
+    try { const d = await call("/billing/checkout", json("POST", { price_id: p.price_id }), "Could not start the payment."); window.location.href = d.url; }
+    catch (e) { setError(e.message); setBusy(""); }
+  };
+  return (
+    <section className={`${card} space-y-3`} data-testid="buy-minutes">
+      <p className="text-sm font-semibold">{t("Buy minutes")}</p>
+      {paid === "1" && <p className="text-sm text-emerald-600" role="status">{t("Thank you! Your minutes are being added; the balance updates within a few seconds.")}</p>}
+      {paid === "0" && <p className="text-sm text-slate-500" role="status">{t("Payment cancelled. Nothing was charged.")}</p>}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {info.packs.map((p) => (
+          <button key={p.price_id} onClick={() => buy(p)} disabled={!!busy} className="rounded-xl border border-slate-300 dark:border-slate-700 p-4 text-left hover:border-emerald-500 disabled:opacity-50" data-testid={`pack-${p.minutes}`}>
+            <p className="text-2xl font-extrabold font-mono">{p.minutes} min</p>
+            <p className="text-sm text-slate-500">{p.display || t("See price at checkout")}</p>
+            <p className="mt-2 text-sm font-semibold text-emerald-600">{busy === p.price_id ? t("Redirecting…") : t("Buy")}</p>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500">{t("Secure payment on Stripe. Minutes are added to your account right after payment.")}</p>
+    </section>
+  );
+}
+
 export function AccountPage({ setError, keys }) {
   const { t } = useLocale();
   const { me, refreshMe } = useAuth();
@@ -157,6 +190,8 @@ export function AccountPage({ setError, keys }) {
         <div><p className="text-xs text-slate-500">{t("Minutes left")}</p><p className="text-2xl font-extrabold font-mono" data-testid="my-minutes">{minutesText(user, t)}</p></div>
         <div><p className="text-xs text-slate-500">{t("Used")}</p><p className="text-2xl font-extrabold font-mono">{user.minutes_used} min</p></div>
       </section>
+
+      <BuyMinutes user={user} setError={setError} refreshMe={refreshMe} />
 
       <form className={`${card} flex flex-wrap items-end gap-2`} onSubmit={(e) => { e.preventDefault(); run(() => call("/me", json("PATCH", { name }), "Could not save."), "Saved."); }}>
         <label className="text-xs text-slate-500 flex-1 min-w-[12rem]">{t("Display name")}<input className={`${input} w-full mt-1`} maxLength={80} value={name} onChange={(e) => setName(e.target.value)} /></label>

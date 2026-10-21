@@ -23,7 +23,8 @@ services:
       # Backend is accessible only on the private Compose network.
       FORWARDED_ALLOW_IPS: '*'
       EVENTS_DB_PATH: /data/events.sqlite3
-      MAX_LISTENERS: ${MAX_LISTENERS:-30}
+      MAX_LISTENERS: ${MAX_LISTENERS:-300}
+      WS_RATE_LIMIT_MAX: ${WS_RATE_LIMIT_MAX:-2000}
       OIDC_DEFAULT_ROLE: ${OIDC_DEFAULT_ROLE:-presenter}
       INGEST_INTERNAL_URL: rtmp://ingest:1935
       INGEST_PUBLIC_HOST: ${INGEST_PUBLIC_HOST:-}
@@ -38,6 +39,9 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
       LEADS_NOTIFY_TO: ${LEADS_NOTIFY_TO:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      MINUTE_PACKS: ${MINUTE_PACKS:-}
     volumes:
       - event_data:/data
     expose:

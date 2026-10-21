@@ -31,6 +31,7 @@ from event_store import EventStore, KVStore
 import accounts
 import ingest
 import live_engine
+import billing
 
 
 ROOT_DIR = Path(__file__).parent
@@ -704,7 +705,8 @@ async def summarize(req: SummaryRequest, request: Request):
 # ==========================================================================
 from fastapi import WebSocket, WebSocketDisconnect
 
-MAX_LISTENERS = int(os.environ.get("MAX_LISTENERS", "30"))
+MAX_LISTENERS = int(os.environ.get("MAX_LISTENERS", "300"))
+WS_RATE_LIMIT_MAX = int(os.environ.get("WS_RATE_LIMIT_MAX", "2000"))  # WebSocket handshakes per IP per minute
 MAX_EVENTS = int(os.environ.get("MAX_EVENTS", "100"))
 EVENT_TTL = int(os.environ.get("EVENT_TTL_SECONDS", "86400"))
 EVENTS = EventStore(os.environ.get("EVENTS_DB_PATH", str(ROOT_DIR / "data" / "events.sqlite3")))
@@ -1344,6 +1346,82 @@ def _check_role_change(principal, target_role):
 @api_router.get("/users")
 async def list_users(principal: dict = Depends(require_admin)):
     return {"users": [accounts.public_user(u) for u in _users()]}
+
+
+# ---------------------------------------------------------------------------
+# Minute packs (Stripe Checkout). Nothing here handles card data.
+# ---------------------------------------------------------------------------
+class CheckoutRequest(BaseModel):
+    price_id: str = Field(min_length=3, max_length=120)
+
+
+@api_router.get("/billing/packs")
+async def billing_packs(principal: dict = Depends(require_operator)):
+    user = _find_user(uid=principal["id"])
+    return {"enabled": billing.enabled(), "packs": [{"minutes": p["minutes"], "price_id": p["price_id"], "display": p["display"]} for p in billing.packs()],
+            "balance_minutes": None if not user or user.get("balance_seconds") is None else round(user["balance_seconds"] / 60),
+            "unlimited": bool(user and user.get("balance_seconds") is None)}
+
+
+@api_router.post("/billing/checkout")
+async def billing_checkout(body: CheckoutRequest, request: Request, principal: dict = Depends(require_operator)):
+    if not billing.enabled():
+        raise HTTPException(404, "Minute packs are not enabled on this server.")
+    user = _find_user(uid=principal["id"])
+    if not user:
+        raise HTTPException(400, "Sign in with an email account to buy minutes.")
+    if _rate_limited("checkout:" + principal["id"], 10):
+        raise HTTPException(429, "Too many attempts. Try again in a minute.")
+    origin = (os.environ.get("PUBLIC_ORIGIN") or str(request.base_url).rstrip("/"))
+    try:
+        url = await billing.create_checkout(_http(), price_id=body.price_id, user_id=user["id"], email=user.get("email"),
+                                            success_url=f"{origin}/portal/account?paid=1", cancel_url=f"{origin}/portal/account?paid=0")
+    except ValueError:
+        raise HTTPException(400, "Unknown pack.")
+    except Exception:
+        logger.exception("Stripe checkout failed")
+        raise HTTPException(502, "Payment service unavailable. Try again shortly.")
+    return {"url": url}
+
+
+@api_router.post("/billing/webhook")
+async def billing_webhook(request: Request):
+    secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    payload = await request.body()
+    if not secret or not billing.verify_signature(payload, request.headers.get("stripe-signature", ""), secret):
+        raise HTTPException(400, "Invalid signature.")
+    try:
+        event = json.loads(payload)
+    except ValueError:
+        raise HTTPException(400, "Invalid payload.")
+    if event.get("type") != "checkout.session.completed":
+        return {"ok": True}
+    session = event.get("data", {}).get("object", {}) or {}
+    if session.get("payment_status") not in (None, "paid"):
+        return {"ok": True}
+    sid = session.get("id", "")
+    done = list(STORE.get("billing_done", []) or [])
+    if sid in done:
+        return {"ok": True}  # Stripe retries deliveries; credit once
+    meta = session.get("metadata") or {}
+    uid = meta.get("user_id") or session.get("client_reference_id")
+    try:
+        minutes = int(meta.get("minutes") or 0)
+    except ValueError:
+        minutes = 0
+    user = _find_user(uid=uid) if uid else None
+    if not user or minutes <= 0:
+        logger.warning("Stripe session %s: no matching user or minutes", sid)
+        return {"ok": True}
+    if user.get("balance_seconds") is not None:
+        _update_user(user["id"], balance_seconds=user["balance_seconds"] + minutes * 60)
+    purchases = list(STORE.get("billing_purchases", []) or [])
+    purchases.append({"session": sid, "user": user["id"], "minutes": minutes, "at": time.time(),
+                      "amount_total": session.get("amount_total"), "currency": session.get("currency")})
+    STORE.set("billing_purchases", purchases[-5000:])
+    STORE.set("billing_done", (done + [sid])[-5000:])
+    logger.info("Credited %s minutes to %s", minutes, user["id"])
+    return {"ok": True}
 
 
 @api_router.get("/directory")
@@ -2203,7 +2281,10 @@ async def ws_broadcast(websocket: WebSocket, eid: str, role: str = "listener", l
     if origin and origin not in _cors_origins:
         await websocket.close(code=4403)
         return
-    if _rate_limited("ws:" + _client_ip(websocket), 120):
+    # A whole venue shares one public IP (same Wi-Fi), so this budget must cover
+    # every phone scanning the QR code at once, plus a mass reconnect after a
+    # network blip. The per-event MAX_LISTENERS cap bounds the actual load.
+    if _rate_limited("ws:" + _client_ip(websocket), WS_RATE_LIMIT_MAX):
         await websocket.close(code=4429)
         return
     lang = (lang or _targets(eid)[0]).lower()

@@ -212,3 +212,58 @@ def test_demo_request_email(monkeypatch):
     assert "\n" not in msg["Subject"] and "Bcc" not in msg.keys()
     assert "Acme" in msg.get_content()
     assert ("tls",) in sent and ("login", "bot@example.org") in sent
+
+
+def _login_user(client, monkeypatch):
+    """Create a presenter with a 100-minute balance and return auth headers + user id."""
+    r = client.post('/api/users', headers=AUTH, json={'email': 'buyer@example.org', 'name': 'Buyer', 'role': 'presenter', 'minutes': 100})
+    assert r.status_code == 200, r.text
+    temp = r.json()['temporary_password']
+    r = client.post('/api/auth/login', json={'email': 'buyer@example.org', 'password': temp})
+    assert r.status_code == 200, r.text
+    tok = r.json()['token']
+    uid = r.json()['user']['id']
+    return {'Authorization': f'Bearer {tok}'}, uid
+
+
+def test_billing_packs_and_checkout(client, monkeypatch):
+    import server, billing
+    monkeypatch.setenv('STRIPE_SECRET_KEY', 'sk_test_x')
+    monkeypatch.setenv('MINUTE_PACKS', '300:price_small:49 $,1000:price_big:149 $')
+    h, uid = _login_user(client, monkeypatch)
+    packs = client.get('/api/billing/packs', headers=h).json()
+    assert packs['enabled'] and packs['balance_minutes'] == 100 and [p['minutes'] for p in packs['packs']] == [300, 1000]
+
+    class FakeResp:
+        status_code = 200
+        def json(self): return {'url': 'https://checkout.stripe.com/c/pay/cs_test_1'}
+    captured = {}
+    class FakeClient:
+        async def post(self, url, data=None, auth=None, timeout=None):
+            captured.update(url=url, data=data, auth=auth); return FakeResp()
+    monkeypatch.setattr(server, '_http', lambda: FakeClient())
+    r = client.post('/api/billing/checkout', headers=h, json={'price_id': 'price_big'})
+    assert r.status_code == 200 and r.json()['url'].startswith('https://checkout.stripe.com/')
+    assert captured['data']['metadata[minutes]'] == '1000' and captured['data']['client_reference_id'] == uid
+    assert captured['auth'] == ('sk_test_x', '')
+    assert client.post('/api/billing/checkout', headers=h, json={'price_id': 'price_nope'}).status_code == 400
+
+
+def test_billing_webhook_credits_once(client, monkeypatch):
+    import json as _json, billing
+    monkeypatch.setenv('STRIPE_WEBHOOK_SECRET', 'whsec_test')
+    h, uid = _login_user(client, monkeypatch)
+    event = {'type': 'checkout.session.completed', 'data': {'object': {'id': 'cs_1', 'payment_status': 'paid', 'client_reference_id': uid,
+             'metadata': {'user_id': uid, 'minutes': '300'}, 'amount_total': 4900, 'currency': 'cad'}}}
+    body = _json.dumps(event).encode()
+    bad = client.post('/api/billing/webhook', content=body, headers={'stripe-signature': 't=1,v1=deadbeef'})
+    assert bad.status_code == 400
+    sig = billing.sign(body, 'whsec_test')
+    assert client.post('/api/billing/webhook', content=body, headers={'stripe-signature': sig}).status_code == 200
+    assert client.get('/api/me', headers=h).json()['user']['minutes_balance'] == 400
+    # Stripe retries: the same session must not credit twice.
+    assert client.post('/api/billing/webhook', content=body, headers={'stripe-signature': sig}).status_code == 200
+    assert client.get('/api/me', headers=h).json()['user']['minutes_balance'] == 400
+    # Expired timestamp is refused.
+    old = billing.sign(body, 'whsec_test', ts=1)
+    assert client.post('/api/billing/webhook', content=body, headers={'stripe-signature': old}).status_code == 400
