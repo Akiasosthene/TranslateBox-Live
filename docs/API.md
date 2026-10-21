@@ -97,6 +97,7 @@ The console reads the stream on `wss://<domain>/api/ws/{id}?role=ingest` (first 
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/events/{id}/server/start` | Translate on the server `{source: "ingest" \| "browser", voice_mode: "original" \| "studio", voice, style, instructions}`. `ingest` pulls the RTMP/SRT stream; `browser` expects microphone audio on the `source` WebSocket. `original` uses OpenAI's translation voice (it follows, and changes with, the speaker); `studio` speaks every language with one fixed voice through the text pipeline: clauses are translated as soon as they end, the next clause is translated while the previous one is spoken, and speech is streamed as it is synthesised (about 1–2 s more delay than the translation voice). `GET /server` reports `cascade.timing` (`translate_ms`, `first_audio_ms`) |
+| `GET` | `/voices` | Studio voices offered to the console: `{provider: "openai" \| "elevenlabs", stt, voices: [{id, label, hint}]}` |
 | `POST` | `/events/{id}/server/voice` | Change the studio voice or its style while the session runs `{voice, style}` |
 | `GET` | `/events/{id}/server` | Status: running, audio, per-language state and listeners, text-pipeline queue |
 | `POST` | `/events/{id}/server/speaker` | `{name}` speaker label for captions and transcripts |

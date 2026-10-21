@@ -194,9 +194,24 @@ export function TranslationProvider({ children }) {
     }
     return list ? `\n\nPreferred terms and spellings: ${list}` : "";
   }, [glossaryRules]);
+
+  // Studio voice catalogue: the premium provider's voices when configured on the server.
+  const [voiceCatalog, setVoiceCatalog] = useState({ provider: "openai", stt: "openai", voices: STUDIO_VOICES });
+  useEffect(() => {
+    let alive = true;
+    operatorFetch(`${API}/voices`).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!alive || !d) return;
+      const voices = d.provider === "elevenlabs" && d.voices?.length ? d.voices : STUDIO_VOICES;
+      setVoiceCatalog({ provider: d.provider, stt: d.stt, voices });
+      if (!voices.some((v) => v.id === studioVoice)) setStudioVoice(voices[0].id);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const voiceLabel = voiceCatalog.voices.find((v) => v.id === studioVoice)?.label || STUDIO_VOICES.find((v) => v.id === studioVoice)?.label;
+
   const voiceMeta = useMemo(() => voiceMode === "studio"
-    ? { mode: "studio", voice: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label || studioVoice }
-    : { mode: "original", voice: null }, [voiceMode, studioVoice]);
+    ? { mode: "studio", voice: voiceLabel || studioVoice }
+    : { mode: "original", voice: null }, [voiceMode, studioVoice, voiceLabel]);
 
   const previewVoice = useCallback(async () => {
     setPreviewing(true);
@@ -375,7 +390,7 @@ export function TranslationProvider({ children }) {
     instructions: (compileInstructions({ modeKey, customText: customInstructions, targetName: getTarget(lang).name, profile }) + boostLine).slice(0, 6000),
   }), [selectedDevice, captureSource, ambientMode, modeKey, customInstructions, profile, boostLine]);
   const channelVoiceConfig = useMemo(() => ({
-    voiceMode, voice: studioVoice, voiceLabel: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label, style: voiceStyle, glossary,
+    voiceMode, voice: studioVoice, voiceLabel, style: voiceStyle, glossary,
   }), [voiceMode, studioVoice, voiceStyle, glossary]);
 
   const broadcast = useBroadcast({
@@ -685,7 +700,7 @@ export function TranslationProvider({ children }) {
     toggleTranslationMute, toggleInputMute: () => setMicMuted(!inputMutedRef.current), testInput, stopTest,
     setMicMuted, pttEnabled, setPttEnabled, autoStopMinutes, setAutoStopMinutes,
     setCaptureSource, streamState, ingestInfo, rotateIngest, serverState, refreshServer, startServer, stopServer,
-    engineMode, setEngineMode, simple, startSimple, stopSimple, voiceModeChangePending, voiceLabel: STUDIO_VOICES.find((v) => v.id === studioVoice)?.label,
+    engineMode, setEngineMode, simple, startSimple, stopSimple, voiceModeChangePending, voiceLabel, voiceCatalog,
     idleStopMinutes, setIdleStopMinutes, pttKey, setPttKey, speaker, setSpeaker, archiveNow, archiveState,
     relayDestinations, addRelay, removeRelay, fetchUsage, loadLibrary, saveLibrary, dub, humanLangs, setHumanLangs,
     clearError: () => setError(null),

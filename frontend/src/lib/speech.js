@@ -188,11 +188,11 @@ async function streamPcm(response, onChunk, signal) {
   }
 }
 
-async function ttsRequest(apiBase, { text, voice, style }, signal) {
+async function ttsRequest(apiBase, { text, voice, style, lang }, signal) {
   const res = await fetch(`${apiBase}/tts`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...operatorHeaders() },
-    body: JSON.stringify({ text, voice, style }),
+    body: JSON.stringify({ text, voice, style, lang }),
     signal,
   });
   if (!res.ok) {
@@ -302,7 +302,7 @@ export async function previewVoice(apiBase, { voice, style, lang }) {
   previewCtx = previewCtx || createAudioContext();
   if (previewCtx.state === "suspended") await previewCtx.resume();
   const player = await new PcmPlayer(previewCtx, { inRate: 24000, targetMs: 150 }).init();
-  const res = await ttsRequest(apiBase, { text: PREVIEW_TEXT[lang] || PREVIEW_TEXT.en, voice, style });
+  const res = await ttsRequest(apiBase, { text: PREVIEW_TEXT[lang] || PREVIEW_TEXT.en, voice, style, lang });
   await streamPcm(res, (buf) => player.push(buf));
   setTimeout(() => player.dispose(), 9000);
 }

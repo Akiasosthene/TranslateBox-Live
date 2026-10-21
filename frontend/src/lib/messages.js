@@ -1558,6 +1558,7 @@ export const messages = {
 "The voice and its style apply live. Switching mode applies at the next start.": {"en": "The voice and its style apply live. Switching mode applies at the next start.", "fr": "La voix et son style s’appliquent en direct. Le changement de mode s’applique au prochain démarrage."},
 "The new voice mode will apply when the session restarts. Listeners lose a few seconds.": {"en": "The new voice mode will apply when the session restarts. Listeners lose a few seconds.", "fr": "Le nouveau mode de voix s’appliquera au redémarrage de la session. Les auditeurs perdent quelques secondes."},
 "Restart now": {"en": "Restart now", "fr": "Redémarrer maintenant"},
+"premium voices": {"en": "premium voices", "fr": "voix premium"},
 "Translation voice (follows the speaker)": {"en": "Translation voice (follows the speaker)", "fr": "Voix de traduction (suit l’orateur)"},
 "Change pending": {"en": "Change pending", "fr": "Changement en attente"},
 "change under Advanced settings": {"en": "change under Advanced settings", "fr": "modifier dans Réglages avancés"},

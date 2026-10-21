@@ -31,6 +31,7 @@ from event_store import EventStore, KVStore
 import accounts
 import ingest
 import live_engine
+import providers
 import billing
 
 
@@ -595,7 +596,8 @@ async def create_realtime_session(req: SessionRequest, request: Request, princip
 
 class TtsRequest(BaseModel):
     text: str = Field(min_length=1, max_length=1200)
-    voice: str = Field(default="marin", max_length=20)
+    voice: str = Field(default="marin", max_length=40)
+    lang: str | None = Field(default=None, max_length=8)
     style: str | None = Field(default=None, max_length=400)
 
 
@@ -607,12 +609,25 @@ async def studio_voice(req: TtsRequest, request: Request):
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(503, "The translation service is not configured on the server.")
-    voice = req.voice.lower()
-    if voice not in STUDIO_VOICES:
+    voice = req.voice.lower() if req.voice.lower() in STUDIO_VOICES else req.voice
+    if not _valid_voice(voice):
         raise HTTPException(400, f"Unknown voice '{voice}'.")
     text = req.text.strip()
     if not text:
         raise HTTPException(400, "Nothing to speak.")
+    if voice not in STUDIO_VOICES:
+        # Premium provider: same stream, same format.
+        style = (req.style or "").strip()
+
+        async def relay_provider():
+            try:
+                async for chunk in _tts_stream(text, voice, style, req.lang):
+                    yield chunk
+            except Exception as exc:
+                logger.warning("Studio voice stream failed: %s", type(exc).__name__)
+        return StreamingResponse(relay_provider(), media_type="application/octet-stream", headers={
+            "Cache-Control": "no-store", "X-Audio-Format": "pcm16; rate=24000; channels=1",
+        })
     payload = {"model": TTS_MODEL, "voice": voice, "input": text, "response_format": "pcm"}
     style = (req.style or "").strip()
     if style:
@@ -1767,8 +1782,12 @@ async def _tts_pcm(text: str, voice: str, style: str) -> bytes:
     return resp.content
 
 
-async def _tts_stream(text: str, voice: str, style: str):
-    """Yield PCM16 24 kHz chunks as OpenAI synthesises them (studio voice)."""
+async def _tts_stream(text: str, voice: str, style: str, lang: str | None = None):
+    """Yield PCM16 24 kHz chunks as the voice provider synthesises them (studio voice)."""
+    if providers.elevenlabs_enabled() and voice not in STUDIO_VOICES:
+        async for chunk in providers.elevenlabs_tts_stream(_http(), text, voice, style, lang):
+            yield chunk
+        return
     api_key = os.environ.get("OPENAI_API_KEY", "")
     payload = {"model": TTS_MODEL, "voice": voice if voice in STUDIO_VOICES else "marin", "input": text[:1200], "response_format": "pcm"}
     if style:
@@ -1819,6 +1838,37 @@ def _realtime_session_update(lang: str, instructions: str) -> dict:
     return {"type": "session.update", "session": session}
 
 
+async def _stt_connect():
+    return await providers.deepgram_connect(rate=live_engine.OPENAI_RATE, language=os.environ.get("DEEPGRAM_LANGUAGE", "multi"))
+
+
+def _valid_voice(voice: str) -> bool:
+    if voice.lower() in STUDIO_VOICES:
+        return True
+    # ElevenLabs voice ids: letters and digits, 10-40 chars
+    return providers.elevenlabs_enabled() and voice.isalnum() and 10 <= len(voice) <= 40
+
+
+_VOICE_LABELS: dict = {}
+
+
+def _voice_label(voice_id: str) -> str:
+    return _VOICE_LABELS.get(voice_id) or "Studio"
+
+
+@api_router.get("/voices", dependencies=[Depends(require_operator)])
+async def list_voices():
+    """Studio voices offered to the console: the premium provider's if configured, else OpenAI's."""
+    if providers.elevenlabs_enabled():
+        try:
+            voices = await providers.elevenlabs_voices(_http())
+            _VOICE_LABELS.update({v["id"]: v["label"] for v in voices})
+            return {"provider": "elevenlabs", "stt": providers.stt_provider(), "voices": voices}
+        except Exception:
+            logger.warning("Could not list ElevenLabs voices", exc_info=True)
+    return {"provider": "openai", "stt": providers.stt_provider(), "voices": []}
+
+
 async def _realtime_connect():
     from websockets.asyncio.client import connect
     base = os.environ.get("OPENAI_REALTIME_WS_URL", "wss://api.openai.com/v1/realtime/translations")
@@ -1844,6 +1894,7 @@ def _live_deps(eid: str) -> live_engine.Deps:
         translate_many=_translate_many, tts=_tts_pcm,
         save_transcript=_save_transcript, archive_enabled=lambda e: bool((EVENTS.get(e) or {}).get("archive")),
         realtime_connect=_realtime_connect, session_update=_realtime_session_update, tts_stream=_tts_stream,
+        stt_connect=_stt_connect if providers.deepgram_enabled() else None,
         ffmpeg_args=lambda: ingest.ffmpeg_args(_ingest_key(eid), rate=live_engine.OPENAI_RATE),
         on_stopped=_live_stopped,
     )
@@ -1870,7 +1921,7 @@ def _live_preflight(eid):
 
 
 class VoiceChoice(BaseModel):
-    voice: str = Field(default="marin", max_length=20)
+    voice: str = Field(default="marin", max_length=40)
     style: str = Field(default="", max_length=400)
 
 
@@ -1895,12 +1946,16 @@ async def server_start(eid: str, body: ServerStart):
     ai, cascade = _ai_langs(eid), _cascade_langs(eid)
     if not ai:
         raise HTTPException(400, "The main language must be interpreted directly.")
-    if body.voice.lower() not in STUDIO_VOICES:
+    if not _valid_voice(body.voice):
         raise HTTPException(400, f"Unknown voice '{body.voice}'.")
     if body.voice_mode == "studio":
         cascade = ai + [l for l in cascade if l not in ai]
     deps = _live_deps(eid)
-    hub = live_engine.CascadeHub(eid, cascade, deps, body.voice.lower(), body.style, idle_timeout=10 ** 9) if cascade else None
+    voice = body.voice.lower() if body.voice.lower() in STUDIO_VOICES else body.voice
+    hub = live_engine.CascadeHub(eid, cascade, deps, voice, body.style, idle_timeout=10 ** 9) if cascade else None
+    if hub and voice not in STUDIO_VOICES:
+        for out in hub.outputs.values():
+            out.meta["voice"] = _voice_label(voice)
     session = live_engine.ServerSession(eid, ai, hub, deps, instructions=body.instructions.strip(),
                                         idle_minutes=float(os.environ.get("SERVER_IDLE_MINUTES", "30")),
                                         booth_room=bool(EVENTS[eid].get("human")), source=body.source, voice_mode=body.voice_mode)
@@ -1935,8 +1990,8 @@ class SpeakerName(BaseModel):
 async def server_voice(eid: str, body: VoiceChoice):
     """Change the studio voice or its delivery style while the server session runs."""
     _require_event(eid)
-    voice = body.voice.lower()
-    if voice not in STUDIO_VOICES:
+    voice = body.voice.lower() if body.voice.lower() in STUDIO_VOICES else body.voice
+    if not _valid_voice(voice):
         raise HTTPException(400, f"Unknown voice '{body.voice}'.")
     session = SERVER_SESSIONS.get(eid)
     hub = session.cascade if session else CASCADES.get(eid)
@@ -1944,7 +1999,7 @@ async def server_voice(eid: str, body: VoiceChoice):
         return {"applied": False}
     hub.voice, hub.style = voice, body.style
     for out in hub.outputs.values():
-        out.meta["voice"] = voice.title()
+        out.meta["voice"] = voice.title() if voice in STUDIO_VOICES else _voice_label(voice)
         out.room["meta"] = dict(out.meta)
         await deps_fanout_meta(out)
     return {"applied": True, "voice": voice}

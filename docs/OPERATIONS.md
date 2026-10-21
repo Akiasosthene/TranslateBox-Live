@@ -86,3 +86,14 @@ tail -n 50 /var/log/syntova-backup.log /var/log/syntova-watchdog.log
    webhook is retried. Purchases are kept in the store under `billing_purchases`.
 
 Test first with `sk_test_` keys and Stripe's test card 4242 4242 4242 4242.
+
+
+## Premium studio voice (Deepgram + ElevenLabs)
+
+Set `DEEPGRAM_API_KEY` and `ELEVENLABS_API_KEY` in `.env` and restart
+(`docker compose up -d`). The console's "Studio voice" then lists the
+ElevenLabs voices of the account, recognition runs on Deepgram (nova-3,
+multilingual) and the OpenAI translation voice stays available as the other
+mode. Remove the keys to fall back to OpenAI for everything. Costs: Deepgram
+per minute of audio heard, ElevenLabs per character spoken (one voice per
+language, so N languages cost N times), GPT-4.1-mini for the text.

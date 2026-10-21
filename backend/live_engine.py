@@ -144,6 +144,9 @@ class Deps:
     # Streaming text-to-speech: async iterator of PCM16 24 kHz chunks. When
     # present, the cascade starts playing a sentence before it is fully synthesised.
     tts_stream: Callable[[str, str, str], object] = None
+    # Dedicated streaming speech recognition (Deepgram) for the studio
+    # pipeline; without it a silent OpenAI translation link transcribes.
+    stt_connect: Callable[[], Awaitable[object]] = None
 
 
 class LangOutput:
@@ -373,7 +376,7 @@ class CascadeHub:
                     first = True
                     hold = b""  # last ~200 ms held back so trailing silence can be cut
                     hold_bytes = OPENAI_RATE * 2 // 5
-                    async for chunk in self.deps.tts_stream(line, self.voice, self.style):
+                    async for chunk in self.deps.tts_stream(line, self.voice, self.style, lang):
                         if first:
                             chunk = trim_edges(chunk + b"", keep_ms=40) if len(chunk) >= 480 else chunk
                             if not chunk:
@@ -569,6 +572,113 @@ class RealtimeLink:
                         await ws.send(json.dumps(update))
 
 
+class SttLink:
+    """Streaming speech recognition (Deepgram) feeding the text pipeline.
+
+    Interim results show the running source text in the console; final
+    results are handed to the cascade clause by clause. Looks like a silent
+    RealtimeLink to the session (same feed/run/state interface).
+    """
+
+    silent = True
+    primary = True
+    lang = "src"
+    out = None
+
+    def __init__(self, session: "ServerSession"):
+        self.session = session
+        self.inbox: asyncio.Queue = asyncio.Queue(maxsize=50)
+        self.state = "starting"
+        self.source = ""
+        self.shown = ""
+        self.source_start = None
+        self.last_sent = time.monotonic()
+
+    def feed(self, pcm24: bytes):
+        try:
+            self.inbox.put_nowait(pcm24)
+        except asyncio.QueueFull:
+            try:
+                self.inbox.get_nowait()
+                self.inbox.put_nowait(pcm24)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
+
+    async def run(self):
+        backoff = 1
+        while self.session.running:
+            try:
+                ws = await self.session.deps.stt_connect()
+            except Exception as exc:
+                self.state = "error"
+                logger.warning("Speech recognition connect failed: %s", type(exc).__name__)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30)
+                continue
+            backoff = 1
+            self.state = "live"
+            sender = asyncio.create_task(self._send(ws))
+            try:
+                async for raw in ws:
+                    if isinstance(raw, (bytes, bytearray)):
+                        continue
+                    await self._event(json.loads(raw))
+            except Exception as exc:
+                logger.info("Speech recognition session ended: %s", type(exc).__name__)
+            finally:
+                sender.cancel()
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+            if self.session.running:
+                self.state = "reconnecting"
+                await asyncio.sleep(1)
+
+    async def _send(self, ws):
+        while True:
+            try:
+                chunk = await asyncio.wait_for(self.inbox.get(), timeout=5)
+            except asyncio.TimeoutError:
+                await ws.send(json.dumps({"type": "KeepAlive"}))  # Deepgram closes idle sockets after ~10 s
+                continue
+            await ws.send(chunk)
+
+    async def _event(self, ev: dict):
+        kind = ev.get("type")
+        if kind == "Results":
+            alt = ((ev.get("channel") or {}).get("alternatives") or [{}])[0]
+            text = (alt.get("transcript") or "").strip()
+            if ev.get("is_final"):
+                if text:
+                    if not self.source:
+                        self.source_start = time.monotonic()
+                    sep = " " if self.source and not self.source.endswith(" ") else ""
+                    self.source += sep + text
+                    self.shown = (self.shown + sep + text)[-2000:]
+                    self.interim = ""
+                    await self.session.notify_console({"type": "source", "text": self.shown})
+                    for clause, sentence_end in split_clauses(self.source + " "):
+                        self.session.source_segment(clause, self.source_start, sentence_end)
+                        self.source = self.source.lstrip()
+                        self.source = self.source[len(clause):].lstrip() if self.source.startswith(clause) else ""
+                        self.source_start = time.monotonic()
+                if ev.get("speech_final"):
+                    await self._flush()
+            elif text:
+                # interim: show it, don't translate it yet
+                await self.session.notify_console({"type": "source", "text": (self.shown + (" " if self.shown else "") + text)[-2000:]})
+        elif kind == "UtteranceEnd":
+            await self._flush()
+
+    async def _flush(self):
+        text = self.source.strip()
+        self.source = ""
+        if text:
+            self.session.source_segment(text, self.source_start, True)
+            self.source_start = None
+
+
 class ServerSession:
     """Translate an ingest stream on the server for every language of an event."""
 
@@ -591,7 +701,10 @@ class ServerSession:
         self.feeder_ws = None
         self.instructions = instructions
         if voice_mode == "studio":
-            self.links = [RealtimeLink(self, ai_langs[0], primary=True, silent=True)] if ai_langs else []
+            if deps.stt_connect is not None:
+                self.links = [SttLink(self)]
+            else:
+                self.links = [RealtimeLink(self, ai_langs[0], primary=True, silent=True)] if ai_langs else []
         else:
             self.links = [RealtimeLink(self, lang, primary=(i == 0)) for i, lang in enumerate(ai_langs)]
         self.running = False

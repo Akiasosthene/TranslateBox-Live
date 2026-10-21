@@ -43,9 +43,12 @@ def test_pacer_releases_in_real_time():
 
 class FakeWS:
     def __init__(self, events):
-        self.events, self.sent, self.closed = list(events), [], False
+        self.events, self.sent, self.raw, self.closed = list(events), [], [], False
 
     async def send(self, data):
+        self.raw.append(data)
+        if isinstance(data, (bytes, bytearray)):
+            return
         self.sent.append(json.loads(data))
 
     def __aiter__(self):
@@ -95,7 +98,7 @@ def test_server_session_and_cascade_reach_listeners(monkeypatch):
     monkeypatch.setattr(server, '_translate_many', fake_translate)
     monkeypatch.setattr(server, '_tts_pcm', fake_tts)
 
-    async def fake_tts_stream(text, voice, style):
+    async def fake_tts_stream(text, voice, style, lang=None):
         pcm = await fake_tts(text, voice, style)
         yield pcm[:len(pcm) // 2]
         yield pcm[len(pcm) // 2:]
@@ -149,7 +152,7 @@ def test_console_mode_cascade_segments(monkeypatch):
     monkeypatch.setattr(server, '_translate_many', fake_translate)
     monkeypatch.setattr(server, '_tts_pcm', fake_tts)
 
-    async def fake_tts_stream(text, voice, style):
+    async def fake_tts_stream(text, voice, style, lang=None):
         pcm = await fake_tts(text, voice, style)
         yield pcm[:len(pcm) // 2]
         yield pcm[len(pcm) // 2:]
@@ -284,7 +287,7 @@ def test_studio_voice_mode_speaks_every_language_with_one_fixed_voice(monkeypatc
     monkeypatch.setattr(server, '_translate_many', fake_translate)
     monkeypatch.setattr(server, '_tts_pcm', fake_tts)
 
-    async def fake_tts_stream(text, voice, style):
+    async def fake_tts_stream(text, voice, style, lang=None):
         pcm = await fake_tts(text, voice, style)
         yield pcm[:len(pcm) // 2]
         yield pcm[len(pcm) // 2:]
@@ -372,3 +375,77 @@ def test_tts_stream_yields_whole_samples(monkeypatch):
         return [c async for c in server._tts_stream('Hi', 'marin', '')]
     chunks = asyncio.run(run())
     assert chunks == [b'\x01\x02', b'\x03\x04\x05\x06'] and all(len(c) % 2 == 0 for c in chunks)
+
+
+def test_premium_studio_uses_deepgram_and_elevenlabs(monkeypatch):
+    """With Deepgram + ElevenLabs keys, studio mode transcribes with Deepgram
+    (no OpenAI realtime link) and speaks every language with the ElevenLabs voice."""
+    monkeypatch.setenv('DEEPGRAM_API_KEY', 'dg-test')
+    monkeypatch.setenv('ELEVENLABS_API_KEY', 'el-test')
+    realtime_calls = []
+    dg_sockets = []
+    spoken = []
+
+    async def fake_realtime():
+        realtime_calls.append(1)
+        raise AssertionError('OpenAI realtime must not be used in premium studio mode')
+
+    async def fake_dg():
+        ws = FakeWS([
+            {'type': 'Results', 'is_final': False, 'channel': {'alternatives': [{'transcript': 'Bonjour à'}]}},
+            {'type': 'Results', 'is_final': True, 'speech_final': True, 'channel': {'alternatives': [{'transcript': 'Bonjour à tous.'}]}},
+            {'type': 'Results', 'is_final': True, 'speech_final': False, 'channel': {'alternatives': [{'transcript': 'Nous allons commencer'}]}},
+            {'type': 'UtteranceEnd'},
+        ])
+        dg_sockets.append(ws)
+        return ws
+
+    async def fake_translate(text, langs):
+        return {lang: f'[{lang}] {text}' for lang in langs}
+
+    async def fake_el(http, text, voice_id, style='', lang=None):
+        spoken.append((text, voice_id, lang))
+        pcm = tone(2400)
+        yield pcm[:2400]
+        yield pcm[2400:]
+
+    monkeypatch.setattr(server, '_realtime_connect', fake_realtime)
+    monkeypatch.setattr(server.providers, 'deepgram_connect', lambda rate=24000, language='multi': fake_dg())
+    monkeypatch.setattr(server.providers, 'elevenlabs_tts_stream', fake_el)
+    monkeypatch.setattr(server, '_translate_many', fake_translate)
+    monkeypatch.setattr(ingest, 'enabled', lambda: False)
+    voice = 'AbCdEf1234567890Xyz0'
+
+    with TestClient(server.app) as client:
+        ev = client.post('/api/events', headers=AUTH, json={'target_language': 'en', 'extra_languages': ['es'], 'captions': True}).json()
+        assert client.post(f"/api/events/{ev['id']}/server/start", headers=AUTH,
+                           json={'source': 'browser', 'voice_mode': 'studio', 'voice': 'robot!'}).status_code == 400
+        with client.websocket_connect(f"/api/ws/{ev['id']}?lang=es") as es:
+            es.send_json({'type': 'auth'}); es.receive_json()
+            started = client.post(f"/api/events/{ev['id']}/server/start", headers=AUTH,
+                                  json={'source': 'browser', 'voice_mode': 'studio', 'voice': voice})
+            assert started.status_code == 200, started.text
+            assert started.json()['languages'] == {'en': {'state': 'starting', 'listeners': 0, 'studio': True}, 'es': {'state': 'starting', 'listeners': 1, 'studio': True}}
+            with client.websocket_connect(f"/api/ws/{ev['id']}?role=source") as src:
+                src.send_json({'type': 'auth', 'token': ev['operator_token']})
+                assert src.receive_json()['type'] == 'ready'
+                for _ in range(10):
+                    src.send_bytes(b'\0' * 1280)
+                captions, got_audio = [], False
+                deadline = time.time() + 8
+                while time.time() < deadline and not (got_audio and any('Nous allons' in c for c in captions)):
+                    msg = es.receive()
+                    if msg.get('bytes'):
+                        got_audio = True
+                    elif msg.get('text'):
+                        d = json.loads(msg['text'])
+                        if d.get('type') == 'caption':
+                            captions.append(d['text'])
+                assert got_audio
+                assert any('[es] Bonjour à tous.' in c for c in captions)
+                assert any('[es] Nous allons commencer' in c for c in captions)  # flushed by UtteranceEnd
+        assert not realtime_calls
+        assert spoken and all(v == voice for _, v, _ in spoken) and {l for _, _, l in spoken} == {'en', 'es'}
+        # Deepgram received the audio at 24 kHz, 100 ms chunks
+        assert any(isinstance(m, (bytes, bytearray)) and len(m) == 4800 for m in dg_sockets[0].raw)
+        client.post(f"/api/events/{ev['id']}/server/stop", headers=AUTH)

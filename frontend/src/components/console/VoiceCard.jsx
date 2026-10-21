@@ -13,8 +13,10 @@ export const VoiceCard = () => {
   const {
     voiceMode, setVoiceMode, studioVoice, setStudioVoice, voiceStyleKey, setVoiceStyleKey,
     customVoiceStyle, setCustomVoiceStyle, glossary, setGlossary, previewVoice, previewing,
-    loadLibrary, saveLibrary, voiceModeChangePending, simple, stopSimple, startSimple,
+    loadLibrary, saveLibrary, voiceModeChangePending, simple, stopSimple, startSimple, voiceCatalog,
   } = useTranslationSession();
+  const voices = voiceCatalog?.voices?.length ? voiceCatalog.voices : STUDIO_VOICES;
+  const premium = voiceCatalog?.provider === "elevenlabs";
   const [restarting, setRestarting] = useState(false);
   const restartNow = async () => {
     setRestarting(true);
@@ -70,9 +72,9 @@ export const VoiceCard = () => {
       {studio && (
         <div className="space-y-4 pt-1">
           <div>
-            <p className={label}>{t("Studio voice")}</p>
+            <p className={label}>{t("Studio voice")}{premium && <span className="ml-2 normal-case tracking-normal text-emerald-600">{t("premium voices")}</span>}</p>
             <div role="radiogroup" aria-label={t("Studio voice")} className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-              {STUDIO_VOICES.map((v) => {
+              {voices.map((v) => {
                 const on = studioVoice === v.id;
                 return (
                   <button key={v.id} type="button" role="radio" aria-checked={on} data-testid={`studio-voice-${v.id}`} onClick={() => setStudioVoice(v.id)}
@@ -86,7 +88,7 @@ export const VoiceCard = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
-            <div>
+            <div className={premium ? "hidden" : ""}>
               <p className={label}>{t("Delivery style")}</p>
               <select data-testid="voice-style-select" value={voiceStyleKey} onChange={(e) => setVoiceStyleKey(e.target.value)} className={`${input} h-11`}>
                 {Object.entries(VOICE_STYLES).map(([key, s]) => <option key={key} value={key}>{t(s.label)}</option>)}
@@ -98,7 +100,7 @@ export const VoiceCard = () => {
               {previewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}{t("Preview voice")}
             </button>
           </div>
-          {voiceStyleKey === "custom" && (
+          {!premium && voiceStyleKey === "custom" && (
             <textarea data-testid="voice-style-custom" value={customVoiceStyle} onChange={(e) => setCustomVoiceStyle(e.target.value.slice(0, 400))} rows={2}
               placeholder={t("Describe tone, pace and emotion, e.g. warm, unhurried, reassuring.")} className={`${input} py-2`} />
           )}
